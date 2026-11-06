@@ -100,24 +100,33 @@ export default function HomePage() {
               Your Sessions
             </h2>
             {sessions.map((s) => (
-              <a
+              <div
                 key={s.id}
-                href={`/session/${s.id}`}
                 className="flex items-center justify-between p-4 bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
               >
-                <span>{s.title}</span>
-                <span
-                  className={`text-sm px-2 py-1 rounded ${
-                    s.status === "active"
-                      ? "bg-green-900 text-green-300"
-                      : s.status === "ended"
-                        ? "bg-gray-700 text-gray-400"
-                        : "bg-blue-900 text-blue-300"
-                  }`}
-                >
-                  {s.status}
-                </span>
-              </a>
+                <a href={`/session/${s.id}`} className="flex-1 min-w-0 truncate">
+                  {s.title}
+                </a>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Link
+                    href={`/session/${s.id}/mix`}
+                    className="text-xs text-gray-400 hover:text-white"
+                  >
+                    Mix
+                  </Link>
+                  <span
+                    className={`text-sm px-2 py-1 rounded ${
+                      s.status === "active"
+                        ? "bg-green-900 text-green-300"
+                        : s.status === "ended"
+                          ? "bg-gray-700 text-gray-400"
+                          : "bg-blue-900 text-blue-300"
+                    }`}
+                  >
+                    {s.status}
+                  </span>
+                </div>
+              </div>
             ))}
           </div>
         )}

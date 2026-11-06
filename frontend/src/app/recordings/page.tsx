@@ -11,6 +11,7 @@ type Row = {
   total_bytes: number | null;
   created_at: string;
   mime_type: string | null;
+  transcript_status: string | null;
   podcast_participants: {
     role: "host" | "guest";
     podcast_sessions: { id: string; title: string };
@@ -64,7 +65,7 @@ export default function RecordingsPage() {
       const { data, error } = await supabase
         .from("podcast_recordings")
         .select(
-          "id, status, total_bytes, created_at, mime_type, " +
+          "id, status, total_bytes, created_at, mime_type, transcript_status, " +
           "podcast_participants!inner(role, podcast_sessions!inner(id, title))"
         )
         .order("created_at", { ascending: false });
@@ -112,12 +113,20 @@ export default function RecordingsPage() {
               const role = r.podcast_participants?.role ?? "—";
               const clickable = r.status === "ready";
               const cls = STATUS_CLASS[r.status] ?? "bg-gray-700 text-gray-300";
+              const ts = r.transcript_status;
               const body = (
                 <>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{title}</div>
                     <div className="text-xs text-gray-500 mt-0.5">
                       {role} · {fmtDate(r.created_at)} · {fmtBytes(r.total_bytes)}
+                      {ts && ts !== "none" && (
+                        <> · transcript: <span className={
+                          ts === "ready" ? "text-green-400"
+                          : ts === "error" ? "text-red-400"
+                          : "text-yellow-400"
+                        }>{ts}</span></>
+                      )}
                     </div>
                   </div>
                   <span className={`text-xs px-2 py-1 rounded shrink-0 ${cls}`}>

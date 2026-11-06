@@ -1,9 +1,11 @@
 import type {
+  CompositeStatusResponse,
   CreateSessionResponse,
   JoinSessionResponse,
   RegisterBatchResponse,
   Session,
   StartRecordingResponse,
+  TranscriptResponse,
 } from "@/types";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
@@ -109,5 +111,33 @@ export function getDownloadUrl(token: string, recordingId: string) {
   return request<{ download_url: string }>(
     `/api/v1/recordings/${recordingId}/download`,
     { method: "GET", token }
+  );
+}
+
+export function getTranscript(token: string, recordingId: string) {
+  return request<TranscriptResponse>(
+    `/api/v1/recordings/${recordingId}/transcript`,
+    { method: "GET", token }
+  );
+}
+
+export function retryTranscribe(token: string, recordingId: string) {
+  return request<{ status: string; recording_id: string }>(
+    `/api/v1/recordings/${recordingId}/transcribe`,
+    { method: "POST", token }
+  );
+}
+
+export function getComposite(token: string, sessionId: string) {
+  return request<CompositeStatusResponse>(
+    `/api/v1/sessions/${sessionId}/composite`,
+    { method: "GET", token }
+  );
+}
+
+export function renderComposite(token: string, sessionId: string) {
+  return request<{ status: string; session_id: string }>(
+    `/api/v1/sessions/${sessionId}/composite`,
+    { method: "POST", token }
   );
 }

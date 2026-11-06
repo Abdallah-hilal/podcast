@@ -7,6 +7,7 @@ from supabase import create_client
 from app.config import settings
 from app.dependencies import get_current_user
 from app.services import livekit
+from app.services.storage import create_signed_download_url
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -192,3 +193,148 @@ async def get_session(
         room_name=session.data["daily_room_name"],
         participants=participants.data or [],
     )
+
+
+class CompositeStatusResponse(BaseModel):
+    session_id: str
+    status: str  # one of: none | pending | processing | ready | error
+    final_storage_path: str | None = None
+    download_url: str | None = None
+    total_bytes: int | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
+    ready_recordings: int = 0
+    total_recordings: int = 0
+
+
+def _owner_only(db, session_id: str, user_id: str) -> None:
+    session = (
+        db.table("podcast_sessions")
+        .select("owner_id")
+        .eq("id", session_id)
+        .single()
+        .execute()
+    )
+    if not session.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.data["owner_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Only the session owner can do this")
+
+
+def _composite_row(db, session_id: str):
+    r = (
+        db.table("podcast_session_composites")
+        .select("*")
+        .eq("session_id", session_id)
+        .maybe_single()
+        .execute()
+    )
+    return r.data if r else None
+
+
+def _count_recordings(db, session_id: str) -> tuple[int, int]:
+    all_rec = (
+        db.table("podcast_recordings")
+        .select("id, status", count="exact")
+        .eq("session_id", session_id)
+        .execute()
+    )
+    rows = all_rec.data or []
+    return sum(1 for r in rows if r["status"] == "ready"), len(rows)
+
+
+@router.get("/{session_id}/composite", response_model=CompositeStatusResponse)
+async def get_composite(
+    session_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+    _owner_only(db, session_id, user_id)
+
+    row = _composite_row(db, session_id)
+    ready, total = _count_recordings(db, session_id)
+
+    if not row:
+        return CompositeStatusResponse(
+            session_id=session_id,
+            status="none",
+            ready_recordings=ready,
+            total_recordings=total,
+        )
+
+    download_url = None
+    if row["status"] == "ready" and row.get("final_storage_path"):
+        download_url = create_signed_download_url(row["final_storage_path"])
+
+    return CompositeStatusResponse(
+        session_id=session_id,
+        status=row["status"],
+        final_storage_path=row.get("final_storage_path"),
+        download_url=download_url,
+        total_bytes=row.get("total_bytes"),
+        duration_seconds=row.get("duration_seconds"),
+        error=row.get("error_message"),
+        ready_recordings=ready,
+        total_recordings=total,
+    )
+
+
+class RenderCompositeResponse(BaseModel):
+    status: str
+    session_id: str
+
+
+@router.post(
+    "/{session_id}/composite",
+    response_model=RenderCompositeResponse,
+    status_code=202,
+)
+async def render_composite(
+    session_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+    _owner_only(db, session_id, user_id)
+
+    ready, total = _count_recordings(db, session_id)
+    if ready < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session has no ready recordings yet ({ready}/{total}).",
+        )
+
+    existing = _composite_row(db, session_id)
+    if existing and existing["status"] == "processing":
+        raise HTTPException(status_code=409, detail="Composite already in progress")
+
+    now = {"updated_at": None}  # placeholder, Postgres default on insert
+    if existing:
+        db.table("podcast_session_composites").update(
+            {
+                "status": "pending",
+                "error_message": None,
+                "final_storage_path": None,
+                "total_bytes": None,
+            }
+        ).eq("session_id", session_id).execute()
+    else:
+        db.table("podcast_session_composites").insert(
+            {
+                "id": str(uuid4()),
+                "session_id": session_id,
+                "status": "pending",
+                "layout": "hstack",
+            }
+        ).execute()
+
+    db.table("processing_jobs").insert(
+        {
+            "id": str(uuid4()),
+            "session_id": session_id,
+            "job_type": "composite",
+            "status": "pending",
+            "attempts": 0,
+        }
+    ).execute()
+
+    return RenderCompositeResponse(status="queued", session_id=session_id)

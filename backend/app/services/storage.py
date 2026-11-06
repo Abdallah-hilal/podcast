@@ -40,6 +40,11 @@ def get_final_path(
     )
 
 
+def get_composite_path(session_id: str) -> str:
+    """Compute the storage path for a session's composite render."""
+    return f"sessions/{session_id}/composite/final.webm"
+
+
 def create_signed_download_url(path: str, expires_in: int = 3600) -> str:
     """Create a signed download URL for the given storage path."""
     result = _get_supabase().storage.from_(BUCKET).create_signed_url(

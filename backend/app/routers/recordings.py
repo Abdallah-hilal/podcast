@@ -243,3 +243,116 @@ async def download_recording(
 
     url = create_signed_download_url(recording.data["final_storage_path"])
     return {"download_url": url}
+
+
+class TranscriptResponse(BaseModel):
+    recording_id: str
+    status: str
+    language: str | None = None
+    text: str | None = None
+    segments: list[dict] | None = None
+    error: str | None = None
+
+
+@router.get("/recordings/{recording_id}/transcript", response_model=TranscriptResponse)
+async def get_transcript(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select(
+            "transcript_status, transcript_language, transcript_text, "
+            "transcript_segments, transcript_error, session_id, "
+            "podcast_participants!inner(user_id)"
+        )
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    session_owner = (
+        db.table("podcast_sessions")
+        .select("owner_id")
+        .eq("id", recording.data["session_id"])
+        .single()
+        .execute()
+    )
+    is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
+    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    if not is_owner and not is_participant:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return TranscriptResponse(
+        recording_id=recording_id,
+        status=recording.data.get("transcript_status") or "none",
+        language=recording.data.get("transcript_language"),
+        text=recording.data.get("transcript_text"),
+        segments=recording.data.get("transcript_segments"),
+        error=recording.data.get("transcript_error"),
+    )
+
+
+class RetryTranscribeResponse(BaseModel):
+    status: str
+    recording_id: str
+
+
+@router.post(
+    "/recordings/{recording_id}/transcribe",
+    response_model=RetryTranscribeResponse,
+)
+async def retry_transcribe(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Owner or participant can re-enqueue transcription (after an error, or to redo)."""
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select(
+            "final_storage_path, session_id, "
+            "podcast_participants!inner(user_id)"
+        )
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    session_owner = (
+        db.table("podcast_sessions")
+        .select("owner_id")
+        .eq("id", recording.data["session_id"])
+        .single()
+        .execute()
+    )
+    is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
+    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    if not is_owner and not is_participant:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not recording.data.get("final_storage_path"):
+        raise HTTPException(status_code=400, detail="Recording not yet processed")
+
+    db.table("podcast_recordings").update(
+        {"transcript_status": "pending", "transcript_error": None}
+    ).eq("id", recording_id).execute()
+
+    db.table("processing_jobs").insert(
+        {
+            "id": str(uuid4()),
+            "recording_id": recording_id,
+            "job_type": "transcribe",
+            "status": "pending",
+            "attempts": 0,
+        }
+    ).execute()
+
+    return RetryTranscribeResponse(status="queued", recording_id=recording_id)

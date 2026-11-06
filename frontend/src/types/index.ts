@@ -40,6 +40,33 @@ export interface RegisterBatchResponse {
   storage_path: string;
 }
 
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface TranscriptResponse {
+  recording_id: string;
+  status: "none" | "pending" | "processing" | "ready" | "error";
+  language: string | null;
+  text: string | null;
+  segments: TranscriptSegment[] | null;
+  error: string | null;
+}
+
+export interface CompositeStatusResponse {
+  session_id: string;
+  status: "none" | "pending" | "processing" | "ready" | "error";
+  final_storage_path: string | null;
+  download_url: string | null;
+  total_bytes: number | null;
+  duration_seconds: number | null;
+  error: string | null;
+  ready_recordings: number;
+  total_recordings: number;
+}
+
 export type PipelineState =
   | "idle"
   | "recording"
