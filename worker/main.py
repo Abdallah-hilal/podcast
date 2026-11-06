@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
 from supabase import Client, create_client
 
 BUCKET = "podcast-recordings"
@@ -211,6 +212,29 @@ def _load_whisper():
     return _whisper_model
 
 
+def _decode_audio_to_f32_mono(path: str, sampling_rate: int = 16000) -> np.ndarray:
+    """Decode any media file to float32 mono PCM at `sampling_rate` using ffmpeg.
+
+    Pipes 16-bit little-endian signed PCM to stdout, then rescales to float32
+    in [-1.0, 1.0]. Avoids PyAV entirely (the version faster-whisper bundles
+    uses a kwarg that av 19 removed)."""
+    cmd = [
+        _ffmpeg_bin(), "-nostdin", "-threads", "0",
+        "-i", path,
+        "-f", "s16le",
+        "-ac", "1",
+        "-ar", str(sampling_rate),
+        "-acodec", "pcm_s16le",
+        "-loglevel", "error",
+        "-",
+    ]
+    r = subprocess.run(cmd, capture_output=True, check=False)
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg audio decode failed: {r.stderr.decode(errors='replace')[-500:]}")
+    arr = np.frombuffer(r.stdout, dtype=np.int16)
+    return arr.astype(np.float32) / 32768.0
+
+
 def process_transcribe(db: Client, job: dict) -> None:
     recording_id = job["recording_id"]
     log.info("job %s: transcribing recording %s", job["id"], recording_id)
@@ -237,9 +261,13 @@ def process_transcribe(db: Client, job: dict) -> None:
         out.write(data)
 
     try:
+        # faster-whisper 1.2.1 relies on PyAV with a kwarg that av 19 removed,
+        # so we decode to 16 kHz mono PCM via ffmpeg ourselves and feed the
+        # numpy array directly — bypasses faster-whisper.audio.decode_audio.
+        audio = _decode_audio_to_f32_mono(tmp_path, sampling_rate=16000)
         model = _load_whisper()
         segments_iter, info = model.transcribe(
-            tmp_path,
+            audio,
             language=WHISPER_LANGUAGE,
             vad_filter=True,
             beam_size=1,
