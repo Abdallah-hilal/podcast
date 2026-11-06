@@ -1,12 +1,12 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client
 
 from app.config import settings
 from app.dependencies import get_current_user
-from app.services import daily
+from app.services import livekit
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -22,8 +22,8 @@ class CreateSessionRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     session_id: str
     title: str
-    daily_room_name: str
-    daily_room_url: str
+    room_name: str
+    livekit_url: str
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=201)
@@ -33,15 +33,19 @@ async def create_session(
 ):
     db = _get_db()
 
-    room = await daily.create_room(body.title)
-
     session_id = str(uuid4())
+    if livekit.is_configured():
+        room_name = livekit.new_room_name()
+        url = settings.livekit_url
+    else:
+        room_name, url = f"local-{session_id}", ""
+
     db.table("podcast_sessions").insert(
         {
             "id": session_id,
             "owner_id": user_id,
             "title": body.title,
-            "daily_room_name": room["name"],
+            "daily_room_name": room_name,  # column kept; holds LiveKit room name now
             "status": "created",
         }
     ).execute()
@@ -60,16 +64,16 @@ async def create_session(
     return CreateSessionResponse(
         session_id=session_id,
         title=body.title,
-        daily_room_name=room["name"],
-        daily_room_url=room["url"],
+        room_name=room_name,
+        livekit_url=url,
     )
 
 
 class JoinSessionResponse(BaseModel):
     participant_id: str
-    daily_token: str
-    daily_room_url: str
-    daily_room_name: str
+    livekit_token: str
+    livekit_url: str
+    room_name: str
 
 
 @router.post("/{session_id}/join", response_model=JoinSessionResponse)
@@ -130,18 +134,22 @@ async def join_session(
         ).execute()
 
     room_name = session_data["daily_room_name"]
-    token = await daily.create_meeting_token(room_name, display_name, is_owner)
-
-    daily_domain = settings.daily_api_url.replace("api.", "").replace("/v1", "")
-    room_url = f"https://{room_name}.daily.co" if "daily.co" not in room_name else ""
-    # Daily room URL format from create_room response
-    room_url = f"https://your-domain.daily.co/{room_name}"
+    if livekit.is_configured() and not room_name.startswith("local-"):
+        token = livekit.create_access_token(
+            room_name=room_name,
+            identity=participant_id,
+            display_name=display_name,
+            is_owner=is_owner,
+        )
+        url = settings.livekit_url
+    else:
+        token, url = "", ""
 
     return JoinSessionResponse(
         participant_id=participant_id,
-        daily_token=token,
-        daily_room_url=room_url,
-        daily_room_name=room_name,
+        livekit_token=token,
+        livekit_url=url,
+        room_name=room_name,
     )
 
 
@@ -149,7 +157,7 @@ class SessionStatusResponse(BaseModel):
     session_id: str
     title: str
     status: str
-    daily_room_name: str | None
+    room_name: str | None
     participants: list[dict]
 
 
@@ -181,6 +189,6 @@ async def get_session(
         session_id=session.data["id"],
         title=session.data["title"],
         status=session.data["status"],
-        daily_room_name=session.data["daily_room_name"],
+        room_name=session.data["daily_room_name"],
         participants=participants.data or [],
     )

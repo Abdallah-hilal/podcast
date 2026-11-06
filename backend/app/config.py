@@ -7,8 +7,9 @@ class Settings(BaseSettings):
     supabase_service_role_key: str
     supabase_jwt_secret: str
 
-    daily_api_key: str
-    daily_api_url: str = "https://api.daily.co/v1"
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
 
     backend_url: str = "http://localhost:8000"
     cors_origins: str = "http://localhost:3000"

@@ -9,10 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@daily-co/daily-js": "^0.94.0",
-    "@daily-co/daily-react": "^0.26.1",
+    "@livekit/components-react": "^2.9.25",
+    "@livekit/components-styles": "^1.2.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
+    "livekit-client": "^2.23.0",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",

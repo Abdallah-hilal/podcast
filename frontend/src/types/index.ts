@@ -2,7 +2,7 @@ export interface Session {
   session_id: string;
   title: string;
   status: string;
-  daily_room_name: string | null;
+  room_name: string | null;
   participants: Participant[];
 }
 
@@ -17,15 +17,15 @@ export interface Participant {
 export interface CreateSessionResponse {
   session_id: string;
   title: string;
-  daily_room_name: string;
-  daily_room_url: string;
+  room_name: string;
+  livekit_url: string;
 }
 
 export interface JoinSessionResponse {
   participant_id: string;
-  daily_token: string;
-  daily_room_url: string;
-  daily_room_name: string;
+  livekit_token: string;
+  livekit_url: string;
+  room_name: string;
 }
 
 export interface StartRecordingResponse {
@@ -38,7 +38,6 @@ export interface StartRecordingResponse {
 export interface RegisterBatchResponse {
   batch_id: string;
   storage_path: string;
-  upload_url: string;
 }
 
 export type PipelineState =
