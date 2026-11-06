@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 
@@ -59,12 +60,20 @@ export default function HomePage() {
       <div className="max-w-2xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Podcast Studio</h1>
-          <button
-            onClick={handleLogout}
-            className="text-gray-400 hover:text-white text-sm"
-          >
-            Sign Out
-          </button>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/recordings"
+              className="text-gray-400 hover:text-white text-sm"
+            >
+              Recordings
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-white text-sm"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleCreate} className="flex gap-3">
