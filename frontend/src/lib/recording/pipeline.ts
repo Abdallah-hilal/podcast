@@ -112,11 +112,12 @@ export class RecordingPipeline {
       byte_size: batch.totalSize,
     });
 
-    // Upload via TUS
+    // Upload directly to Supabase via TUS (user JWT auth)
     await this.uploader.upload({
       batchId: registered.batch_id,
       blob,
-      uploadUrl: registered.upload_url,
+      storagePath: registered.storage_path,
+      authToken: this.token,
       onProgress: (uploaded) => {
         this.bytesUploaded += uploaded;
       },

@@ -40,12 +40,6 @@ def get_final_path(
     )
 
 
-def create_signed_upload_url(path: str) -> str:
-    """Create a signed upload URL for the given storage path."""
-    result = _get_supabase().storage.from_(BUCKET).create_signed_upload_url(path)
-    return result["signed_url"]
-
-
 def create_signed_download_url(path: str, expires_in: int = 3600) -> str:
     """Create a signed download URL for the given storage path."""
     result = _get_supabase().storage.from_(BUCKET).create_signed_url(

@@ -7,9 +7,7 @@ from supabase import create_client
 from app.config import settings
 from app.dependencies import get_current_user
 from app.services.storage import (
-    BUCKET,
     create_signed_download_url,
-    create_signed_upload_url,
     get_final_path,
     get_upload_path,
 )
@@ -91,7 +89,6 @@ class RegisterBatchRequest(BaseModel):
 class RegisterBatchResponse(BaseModel):
     batch_id: str
     storage_path: str
-    upload_url: str
 
 
 @router.post(
@@ -126,8 +123,6 @@ async def register_batch(
         session_id, participant_id, recording_id, body.sequence_number
     )
 
-    upload_url = create_signed_upload_url(storage_path)
-
     batch_id = str(uuid4())
     db.table("recording_batches").insert(
         {
@@ -141,11 +136,7 @@ async def register_batch(
         }
     ).execute()
 
-    return RegisterBatchResponse(
-        batch_id=batch_id,
-        storage_path=storage_path,
-        upload_url=upload_url,
-    )
+    return RegisterBatchResponse(batch_id=batch_id, storage_path=storage_path)
 
 
 @router.post("/recordings/{recording_id}/batches/{batch_id}/complete")
