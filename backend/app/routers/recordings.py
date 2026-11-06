@@ -1,0 +1,254 @@
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from supabase import create_client
+
+from app.config import settings
+from app.dependencies import get_current_user
+from app.services.storage import (
+    BUCKET,
+    create_signed_download_url,
+    create_signed_upload_url,
+    get_final_path,
+    get_upload_path,
+)
+
+router = APIRouter(prefix="/api/v1", tags=["recordings"])
+
+
+def _get_db():
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+class StartRecordingRequest(BaseModel):
+    mime_type: str
+    actual_width: int
+    actual_height: int
+    fps: float
+
+
+class StartRecordingResponse(BaseModel):
+    recording_id: str
+    session_id: str
+    participant_id: str
+    status: str
+
+
+@router.post(
+    "/sessions/{session_id}/recordings",
+    response_model=StartRecordingResponse,
+    status_code=201,
+)
+async def start_recording(
+    session_id: str,
+    body: StartRecordingRequest,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    participant = (
+        db.table("podcast_participants")
+        .select("id")
+        .eq("session_id", session_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not participant.data:
+        raise HTTPException(status_code=403, detail="Not a participant of this session")
+
+    participant_id = participant.data["id"]
+    recording_id = str(uuid4())
+
+    db.table("podcast_recordings").insert(
+        {
+            "id": recording_id,
+            "session_id": session_id,
+            "participant_id": participant_id,
+            "mime_type": body.mime_type,
+            "actual_width": body.actual_width,
+            "actual_height": body.actual_height,
+            "fps": body.fps,
+            "status": "recording",
+        }
+    ).execute()
+
+    return StartRecordingResponse(
+        recording_id=recording_id,
+        session_id=session_id,
+        participant_id=participant_id,
+        status="recording",
+    )
+
+
+class RegisterBatchRequest(BaseModel):
+    sequence_number: int
+    byte_size: int
+    checksum: str | None = None
+
+
+class RegisterBatchResponse(BaseModel):
+    batch_id: str
+    storage_path: str
+    upload_url: str
+
+
+@router.post(
+    "/recordings/{recording_id}/batches",
+    response_model=RegisterBatchResponse,
+    status_code=201,
+)
+async def register_batch(
+    recording_id: str,
+    body: RegisterBatchRequest,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select("*, podcast_participants!inner(user_id, session_id)")
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    if recording.data["podcast_participants"]["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your recording")
+
+    session_id = recording.data["session_id"]
+    participant_id = recording.data["participant_id"]
+
+    storage_path = get_upload_path(
+        session_id, participant_id, recording_id, body.sequence_number
+    )
+
+    upload_url = create_signed_upload_url(storage_path)
+
+    batch_id = str(uuid4())
+    db.table("recording_batches").insert(
+        {
+            "id": batch_id,
+            "recording_id": recording_id,
+            "sequence_number": body.sequence_number,
+            "storage_path": storage_path,
+            "byte_size": body.byte_size,
+            "checksum": body.checksum,
+            "upload_status": "pending",
+        }
+    ).execute()
+
+    return RegisterBatchResponse(
+        batch_id=batch_id,
+        storage_path=storage_path,
+        upload_url=upload_url,
+    )
+
+
+@router.post("/recordings/{recording_id}/batches/{batch_id}/complete")
+async def complete_batch(
+    recording_id: str,
+    batch_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    db.table("recording_batches").update({"upload_status": "uploaded"}).eq(
+        "id", batch_id
+    ).eq("recording_id", recording_id).execute()
+
+    return {"status": "ok"}
+
+
+@router.post("/recordings/{recording_id}/finalize")
+async def finalize_recording(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select("*, podcast_participants!inner(user_id, session_id)")
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    if recording.data["podcast_participants"]["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your recording")
+
+    pending = (
+        db.table("recording_batches")
+        .select("id", count="exact")
+        .eq("recording_id", recording_id)
+        .neq("upload_status", "uploaded")
+        .execute()
+    )
+    if pending.count and pending.count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{pending.count} batch(es) not yet uploaded",
+        )
+
+    session_id = recording.data["session_id"]
+    participant_id = recording.data["participant_id"]
+    final_path = get_final_path(session_id, participant_id, recording_id)
+
+    db.table("podcast_recordings").update(
+        {"status": "uploaded", "final_storage_path": final_path}
+    ).eq("id", recording_id).execute()
+
+    db.table("processing_jobs").insert(
+        {
+            "id": str(uuid4()),
+            "recording_id": recording_id,
+            "job_type": "reconstruct",
+            "status": "pending",
+            "attempts": 0,
+        }
+    ).execute()
+
+    return {"status": "queued", "recording_id": recording_id}
+
+
+@router.get("/recordings/{recording_id}/download")
+async def download_recording(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select("*, podcast_participants!inner(user_id, session_id)")
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    session_owner = (
+        db.table("podcast_sessions")
+        .select("owner_id")
+        .eq("id", recording.data["session_id"])
+        .single()
+        .execute()
+    )
+
+    is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
+    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+
+    if not is_owner and not is_participant:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not recording.data.get("final_storage_path"):
+        raise HTTPException(status_code=400, detail="Recording not yet processed")
+
+    url = create_signed_download_url(recording.data["final_storage_path"])
+    return {"download_url": url}
