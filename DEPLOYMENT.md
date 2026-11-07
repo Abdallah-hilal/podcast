@@ -143,9 +143,13 @@ sudo systemctl enable podcast-stack.service
 ## 6. Smoke test
 
 ```bash
-# Backend is reachable through TLS
+# Backend is reachable through TLS (liveness)
 curl -sS https://api.abdallahhelal.com/health
 # → {"status":"ok"}
+
+# Dependency check — Supabase, LiveKit, CORS
+curl -sS https://api.abdallahhelal.com/ready | python3 -m json.tool
+# → ok: true for every check. ok: false lists which dependency is broken.
 
 # Frontend serves the login page
 curl -sSI https://app.abdallahhelal.com/login | head -1

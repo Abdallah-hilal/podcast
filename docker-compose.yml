@@ -17,9 +17,12 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)"]
+      # /ready checks Supabase + LiveKit reachability, not just that the
+      # process is up. Failing deps mark the container unhealthy so a load
+      # balancer can keep it out of rotation.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status == 200 else 1)"]
       interval: 30s
-      timeout: 5s
+      timeout: 8s
       retries: 3
       start_period: 15s
 
