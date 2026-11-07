@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
+import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type { TranscriptResponse, TranscriptSegment } from "@/types";
 
 const TRANSCRIPT_POLL_MS = 3000;
@@ -52,7 +53,7 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
+        router.push(loginUrlWithNext());
         return;
       }
       token = session.access_token;
@@ -108,7 +109,7 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) {
-      router.push("/login");
+      router.push(loginUrlWithNext());
       return;
     }
     setRetrying(true);

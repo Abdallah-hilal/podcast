@@ -16,6 +16,7 @@ import {
   PhoneOffIcon,
 } from "@/components/meeting/icons";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
+import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type {
   PipelineState,
   PipelineProgress,
@@ -69,7 +70,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
+        router.push(loginUrlWithNext());
         return;
       }
       setToken(session.access_token);

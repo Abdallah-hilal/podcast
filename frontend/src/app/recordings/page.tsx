@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { loginUrlWithNext } from "@/lib/auth-redirect";
 
 type Row = {
   id: string;
@@ -58,7 +59,7 @@ export default function RecordingsPage() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
+        router.push(loginUrlWithNext());
         return;
       }
 

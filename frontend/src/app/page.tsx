@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
+import { loginUrlWithNext } from "@/lib/auth-redirect";
 
 export default function HomePage() {
   const [title, setTitle] = useState("");
@@ -19,7 +20,7 @@ export default function HomePage() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
-        router.push("/login");
+        router.push(loginUrlWithNext());
         return;
       }
       setToken(session.access_token);

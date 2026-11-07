@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
+import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type { CompositeStatusResponse } from "@/types";
 
 const POLL_MS = 3000;
@@ -50,7 +51,7 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
+        router.push(loginUrlWithNext());
         return;
       }
       token = session.access_token;
@@ -92,7 +93,7 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) {
-      router.push("/login");
+      router.push(loginUrlWithNext());
       return;
     }
     setRendering(true);
