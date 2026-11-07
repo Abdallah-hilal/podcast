@@ -45,7 +45,12 @@ export function InviteButton({ sessionId }: { sessionId: string }) {
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <LinkIcon />}
-      <span>{copied ? "Copied!" : "Copy invite link"}</span>
+      <span className="hidden sm:inline">
+        {copied ? "Copied!" : "Copy invite link"}
+      </span>
+      <span className="inline sm:hidden">
+        {copied ? "Copied" : "Invite"}
+      </span>
     </button>
   );
 }

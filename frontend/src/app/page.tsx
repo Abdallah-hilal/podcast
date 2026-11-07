@@ -64,41 +64,43 @@ export default function HomePage() {
   if (!token) return null;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-2xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Podcast Studio</h1>
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-8">
+      <div className="max-w-2xl mx-auto space-y-6 sm:space-y-8">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl sm:text-3xl font-bold whitespace-nowrap">
+            Podcast Studio
+          </h1>
+          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             <Link
               href="/recordings"
-              className="text-gray-400 hover:text-white text-sm"
+              className="text-gray-400 hover:text-white text-sm whitespace-nowrap"
             >
               Recordings
             </Link>
             <button
               onClick={handleLogout}
-              className="text-gray-400 hover:text-white text-sm"
+              className="text-gray-400 hover:text-white text-sm whitespace-nowrap"
             >
-              Sign Out
+              Sign out
             </button>
           </div>
         </div>
 
-        <form onSubmit={handleCreate} className="flex gap-3">
+        <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <input
             type="text"
             placeholder="Episode title..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
-            className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 min-w-0 px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg font-medium transition-colors"
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg font-medium transition-colors whitespace-nowrap"
           >
-            {loading ? "Creating..." : "New Session"}
+            {loading ? "Creating…" : "New session"}
           </button>
         </form>
 
@@ -115,7 +117,7 @@ export default function HomePage() {
                 <a href={`/session/${s.id}`} className="flex-1 min-w-0 truncate">
                   {s.title}
                 </a>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                   <Link
                     href={`/session/${s.id}/mix`}
                     className="text-xs text-gray-400 hover:text-white"
@@ -123,7 +125,7 @@ export default function HomePage() {
                     Mix
                   </Link>
                   <span
-                    className={`text-sm px-2 py-1 rounded ${
+                    className={`text-xs sm:text-sm px-2 py-1 rounded ${
                       s.status === "active"
                         ? "bg-green-900 text-green-300"
                         : s.status === "ended"

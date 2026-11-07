@@ -37,10 +37,12 @@ export function ParticipantsBadge() {
       aria-label={alone ? "Waiting for others" : `${count} participants in room`}
     >
       <UsersIcon className="w-3.5 h-3.5" />
-      <span>
-        {alone
-          ? "Waiting for others"
-          : `${count} in room`}
+      {/* Full label on sm+ screens; just the count on mobile to save header space. */}
+      <span className="hidden sm:inline">
+        {alone ? "Waiting for others" : `${count} in room`}
+      </span>
+      <span className="inline sm:hidden tabular-nums">
+        {alone ? "1" : count}
       </span>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MicIcon, MicOffIcon, CamIcon, CamOffIcon } from "./icons";
+import { AudioLevelMeter } from "./AudioLevelMeter";
 
 export interface PreJoinChoice {
   cameraId: string | undefined;
@@ -206,6 +207,17 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             </select>
           </label>
         </div>
+
+        {!err && (
+          <div className="space-y-1.5">
+            <span className="block text-xs uppercase tracking-wider text-gray-500">Mic level</span>
+            <AudioLevelMeter micId={micId || undefined} enabled={micOn && !!micId} />
+            <p className="text-[11px] text-gray-600">
+              Say something — the bar should move. If it stays flat, pick a
+              different mic above.
+            </p>
+          </div>
+        )}
 
         <button
           onClick={handleJoin}
