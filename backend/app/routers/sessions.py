@@ -7,7 +7,7 @@ from supabase import create_client
 from app.config import settings
 from app.dependencies import get_current_user
 from app.services import livekit
-from app.services.storage import create_signed_download_url
+from app.services.storage import create_signed_download_url, remove_prefix
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -152,6 +152,20 @@ async def join_session(
         livekit_url=url,
         room_name=room_name,
     )
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Owner-only. Removes all storage objects under the session, then the
+    row — FKs cascade the recordings, participants and jobs."""
+    db = _get_db()
+    _owner_only(db, session_id, user_id)
+
+    remove_prefix(f"sessions/{session_id}")
+    db.table("podcast_sessions").delete().eq("id", session_id).execute()
 
 
 class SessionStatusResponse(BaseModel):

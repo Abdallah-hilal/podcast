@@ -29,6 +29,8 @@ async function request<T>(
     throw new Error(body.detail || `API error ${res.status}`);
   }
 
+  // 204 No Content (used by DELETE) has no body to parse.
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -140,4 +142,18 @@ export function renderComposite(token: string, sessionId: string) {
     `/api/v1/sessions/${sessionId}/composite`,
     { method: "POST", token }
   );
+}
+
+export function deleteSession(token: string, sessionId: string) {
+  return request<void>(`/api/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function deleteRecording(token: string, recordingId: string) {
+  return request<void>(`/api/v1/recordings/${recordingId}`, {
+    method: "DELETE",
+    token,
+  });
 }

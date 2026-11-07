@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
+import { DeleteButton } from "@/components/common/DeleteButton";
 
 export default function HomePage() {
   const [title, setTitle] = useState("");
@@ -52,6 +53,12 @@ export default function HomePage() {
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push("/login");
+  }
+
+  async function handleDelete(sessionId: string) {
+    if (!token) return;
+    await api.deleteSession(token, sessionId);
+    setSessions((xs) => xs.filter((s) => s.id !== sessionId));
   }
 
   if (!token) return null;
@@ -126,6 +133,11 @@ export default function HomePage() {
                   >
                     {s.status}
                   </span>
+                  <DeleteButton
+                    onDelete={() => handleDelete(s.id)}
+                    label="Delete"
+                    confirmLabel="Delete?"
+                  />
                 </div>
               </div>
             ))}

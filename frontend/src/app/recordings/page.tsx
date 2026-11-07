@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
+import * as api from "@/lib/api";
+import { DeleteButton } from "@/components/common/DeleteButton";
 
 type Row = {
   id: string;
@@ -50,6 +52,7 @@ export default function RecordingsPage() {
 
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState("");
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -62,6 +65,7 @@ export default function RecordingsPage() {
         router.push(loginUrlWithNext());
         return;
       }
+      if (mounted) setToken(session.access_token);
 
       const { data, error } = await supabase
         .from("podcast_recordings")
@@ -84,6 +88,12 @@ export default function RecordingsPage() {
       mounted = false;
     };
   }, [router, supabase]);
+
+  async function handleDelete(recordingId: string) {
+    if (!token) return;
+    await api.deleteRecording(token, recordingId);
+    setRows((xs) => xs?.filter((r) => r.id !== recordingId) ?? xs);
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-8">
@@ -115,7 +125,7 @@ export default function RecordingsPage() {
               const clickable = r.status === "ready";
               const cls = STATUS_CLASS[r.status] ?? "bg-gray-700 text-gray-300";
               const ts = r.transcript_status;
-              const body = (
+              const inner = (
                 <>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{title}</div>
@@ -136,19 +146,31 @@ export default function RecordingsPage() {
                 </>
               );
               return (
-                <li key={r.id}>
+                <li
+                  key={r.id}
+                  className={`relative flex items-center gap-4 p-4 rounded-lg transition-colors ${
+                    clickable
+                      ? "bg-gray-900 hover:bg-gray-800"
+                      : "bg-gray-900/60 opacity-60"
+                  }`}
+                >
                   {clickable ? (
                     <Link
                       href={`/recordings/${r.id}`}
-                      className="flex items-center gap-4 p-4 bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
+                      className="flex items-center gap-4 flex-1 min-w-0"
                     >
-                      {body}
+                      {inner}
                     </Link>
                   ) : (
-                    <div className="flex items-center gap-4 p-4 bg-gray-900/60 rounded-lg opacity-60 cursor-not-allowed">
-                      {body}
+                    <div className="flex items-center gap-4 flex-1 min-w-0 cursor-not-allowed">
+                      {inner}
                     </div>
                   )}
+                  <DeleteButton
+                    onDelete={() => handleDelete(r.id)}
+                    label="Delete"
+                    confirmLabel="Delete?"
+                  />
                 </li>
               );
             })}

@@ -10,6 +10,7 @@ from app.services.storage import (
     create_signed_download_url,
     get_final_path,
     get_upload_path,
+    remove_prefix,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["recordings"])
@@ -205,6 +206,49 @@ async def finalize_recording(
     ).execute()
 
     return {"status": "queued", "recording_id": recording_id}
+
+
+@router.delete("/recordings/{recording_id}", status_code=204)
+async def delete_recording(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Owner or the recording's own participant can delete. Removes every
+    storage object under the recording's prefix, cascades-deletes
+    recording_batches / processing_jobs via FK, then drops the row."""
+    db = _get_db()
+
+    recording = (
+        db.table("podcast_recordings")
+        .select("session_id, participant_id, podcast_participants!inner(user_id)")
+        .eq("id", recording_id)
+        .single()
+        .execute()
+    )
+    if not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    session_owner = (
+        db.table("podcast_sessions")
+        .select("owner_id")
+        .eq("id", recording.data["session_id"])
+        .single()
+        .execute()
+    )
+    is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
+    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    if not is_owner and not is_participant:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    session_id = recording.data["session_id"]
+    participant_id = recording.data["participant_id"]
+    prefix = (
+        f"sessions/{session_id}/participants/{participant_id}"
+        f"/recording-{recording_id}"
+    )
+    remove_prefix(prefix)
+
+    db.table("podcast_recordings").delete().eq("id", recording_id).execute()
 
 
 @router.get("/recordings/{recording_id}/download")

@@ -10,6 +10,7 @@ import { VideoGrid } from "@/components/meeting/VideoGrid";
 import { ControlBar } from "@/components/meeting/ControlBar";
 import { RecBadge, UploadBadge } from "@/components/meeting/Overlays";
 import { InviteButton } from "@/components/meeting/InviteButton";
+import { ParticipantsBadge } from "@/components/meeting/ParticipantsBadge";
 import {
   RecordIcon,
   StopIcon,
@@ -162,7 +163,9 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const header = (
+  // `withBadge` is for the in-room header (inside LiveKitRoom); the local-only
+  // header omits it since there's no room context to count participants.
+  const renderHeader = (withBadge: boolean) => (
     <header className="flex items-center justify-between px-5 py-4 bg-gray-900/60 backdrop-blur-md border-b border-white/5">
       <div className="min-w-0 flex-1 mr-4">
         <h1 className="text-base md:text-lg font-semibold text-white truncate">
@@ -170,6 +173,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         </h1>
       </div>
       <div className="flex items-center gap-3 shrink-0">
+        {withBadge && <ParticipantsBadge />}
         <InviteButton sessionId={sessionId} />
       </div>
     </header>
@@ -178,7 +182,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   if (localOnly) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-        {header}
+        {renderHeader(false)}
         <div className="flex-1 relative flex items-center justify-center p-6">
           <div className="max-w-md text-center text-gray-500">
             Live video call is not configured for this server. You can still
@@ -234,7 +238,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       }}
     >
       <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-        {header}
+        {renderHeader(true)}
         <div className="flex-1 relative flex items-center justify-center p-4 md:p-6">
           <VideoGrid />
           {pipelineState === "recording" && (
