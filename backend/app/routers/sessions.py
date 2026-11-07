@@ -46,7 +46,7 @@ async def create_session(
             "id": session_id,
             "owner_id": user_id,
             "title": body.title,
-            "daily_room_name": room_name,  # column kept; holds LiveKit room name now
+            "room_name": room_name,
             "status": "created",
         }
     ).execute()
@@ -134,7 +134,7 @@ async def join_session(
             }
         ).execute()
 
-    room_name = session_data["daily_room_name"]
+    room_name = session_data["room_name"]
     if livekit.is_configured() and not room_name.startswith("local-"):
         token = livekit.create_access_token(
             room_name=room_name,
@@ -190,7 +190,7 @@ async def get_session(
         session_id=session.data["id"],
         title=session.data["title"],
         status=session.data["status"],
-        room_name=session.data["daily_room_name"],
+        room_name=session.data["room_name"],
         participants=participants.data or [],
     )
 
