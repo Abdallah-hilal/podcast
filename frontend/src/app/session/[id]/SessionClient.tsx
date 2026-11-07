@@ -3,13 +3,24 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import "@livekit/components-styles";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
-import { VideoGrid } from "@/components/livekit/VideoGrid";
-import { RecordingControls } from "@/components/recording/RecordingControls";
+import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
+import { VideoGrid } from "@/components/meeting/VideoGrid";
+import { ControlBar } from "@/components/meeting/ControlBar";
+import { RecBadge, UploadBadge } from "@/components/meeting/Overlays";
+import { InviteButton } from "@/components/meeting/InviteButton";
+import {
+  RecordIcon,
+  StopIcon,
+  PhoneOffIcon,
+} from "@/components/meeting/icons";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
-import type { PipelineState, PipelineProgress, JoinSessionResponse } from "@/types";
+import type {
+  PipelineState,
+  PipelineProgress,
+  JoinSessionResponse,
+} from "@/types";
 
 export default function SessionClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -20,6 +31,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   const [token, setToken] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState("");
   const [error, setError] = useState("");
+  const [prejoined, setPrejoined] = useState(false);
+  const [preChoice, setPreChoice] = useState<PreJoinChoice | null>(null);
 
   const pipelineRef = useRef<RecordingPipeline>(new RecordingPipeline());
   const [pipelineState, setPipelineState] = useState<PipelineState>("idle");
@@ -33,7 +46,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     batchesUploaded: 0,
   });
 
-  // Progress polling while the pipeline is doing something
   useEffect(() => {
     if (pipelineState === "idle" || pipelineState === "complete") return;
     const interval = setInterval(() => {
@@ -49,7 +61,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     });
   }, []);
 
-  // Fetch session + join info on mount
   useEffect(() => {
     let mounted = true;
 
@@ -61,7 +72,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         router.push("/login");
         return;
       }
-
       setToken(session.access_token);
 
       try {
@@ -72,8 +82,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         const joinData = await api.joinSession(session.access_token, sessionId);
         if (!mounted) return;
 
-        // Local-only mode: no LiveKit configured on the backend. Skip the live
-        // video call and go straight to recording.
         if (!joinData.livekit_url || !joinData.livekit_token) {
           setLocalOnly(true);
           return;
@@ -118,8 +126,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-center space-y-4">
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4">
           <p className="text-red-400 text-lg">{error}</p>
           <button
             onClick={() => router.push("/")}
@@ -132,76 +140,182 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const header = (
-    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-      <h1 className="text-xl font-semibold">{sessionTitle || "Loading..."}</h1>
-      <button
-        onClick={handleLeave}
-        className="px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-lg text-sm transition-colors"
-      >
-        Leave
-      </button>
-    </div>
-  );
+  if (!localOnly && !joinInfo) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-500 text-sm animate-pulse">Connecting…</div>
+      </div>
+    );
+  }
 
-  const controls = (
-    <div className="p-4 border-t border-gray-800">
-      <RecordingControls
-        state={pipelineState}
-        onStart={handleStartRecording}
-        onStop={handleStopRecording}
-        elapsedMs={progress.elapsedMs}
-        batchesUploaded={progress.batchesUploaded}
-        batchesTotal={progress.batchesSealed}
+  if (!prejoined) {
+    return (
+      <PreJoin
+        title={sessionTitle || "Meeting"}
+        roleLabel={localOnly ? "Local recording" : "Ready to join"}
+        onJoin={(choice) => {
+          setPreChoice(choice);
+          setPrejoined(true);
+        }}
       />
-    </div>
+    );
+  }
+
+  const header = (
+    <header className="flex items-center justify-between px-5 py-4 bg-gray-900/60 backdrop-blur-md border-b border-white/5">
+      <div className="min-w-0 flex-1 mr-4">
+        <h1 className="text-base md:text-lg font-semibold text-white truncate">
+          {sessionTitle}
+        </h1>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <InviteButton sessionId={sessionId} />
+      </div>
+    </header>
   );
 
-  // Local-only mode (no LiveKit): just show the recording controls.
   if (localOnly) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex flex-col">
         {header}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <p className="text-gray-500">
-            Local recording mode — no live video call. Use Start Recording below.
-          </p>
+        <div className="flex-1 relative flex items-center justify-center p-6">
+          <div className="max-w-md text-center text-gray-500">
+            Live video call is not configured for this server. You can still
+            record locally — your webm will be uploaded to Supabase.
+          </div>
+          {pipelineState === "recording" && (
+            <RecBadge elapsedMs={progress.elapsedMs} />
+          )}
+          <UploadBadge
+            state={pipelineState}
+            batchesUploaded={progress.batchesUploaded}
+            batchesTotal={progress.batchesSealed}
+            bytesUploaded={progress.bytesUploaded}
+          />
         </div>
-        {controls}
+        <LocalControlBar
+          recState={pipelineState}
+          elapsedMs={progress.elapsedMs}
+          onRecord={handleStartRecording}
+          onStop={handleStopRecording}
+          onLeave={handleLeave}
+        />
       </div>
     );
   }
 
-  // Waiting for /join response.
-  if (!joinInfo) {
-    return (
-      <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-        {header}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <p className="text-gray-500">Connecting to room...</p>
-        </div>
-      </div>
-    );
-  }
+  const videoOpt: boolean | { deviceId: { exact: string } } = preChoice?.camOn
+    ? preChoice.cameraId
+      ? { deviceId: { exact: preChoice.cameraId } }
+      : true
+    : false;
+
+  const audioOpt: boolean | { deviceId: { exact: string } } = preChoice?.micOn
+    ? preChoice.micId
+      ? { deviceId: { exact: preChoice.micId } }
+      : true
+    : false;
 
   return (
     <LiveKitRoom
-      serverUrl={joinInfo.livekit_url}
-      token={joinInfo.livekit_token}
+      serverUrl={joinInfo!.livekit_url}
+      token={joinInfo!.livekit_token}
       connect
-      video
-      audio
-      data-lk-theme="default"
-      onError={(e) => setError(e.message)}
+      video={videoOpt}
+      audio={audioOpt}
+      onError={(e) => {
+        // Transient disconnects and device-permission errors shouldn't blow
+        // the whole UI away. Only fatal connection errors do.
+        console.warn("LiveKit error:", e);
+        if (/connect|signal|token/i.test(e.message)) {
+          setError(e.message);
+        }
+      }}
     >
       <div className="min-h-screen bg-gray-950 text-white flex flex-col">
         {header}
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 relative flex items-center justify-center p-4 md:p-6">
           <VideoGrid />
+          {pipelineState === "recording" && (
+            <RecBadge elapsedMs={progress.elapsedMs} />
+          )}
+          <UploadBadge
+            state={pipelineState}
+            batchesUploaded={progress.batchesUploaded}
+            batchesTotal={progress.batchesSealed}
+            bytesUploaded={progress.bytesUploaded}
+          />
         </div>
-        {controls}
+        <ControlBar
+          recState={pipelineState}
+          elapsedMs={progress.elapsedMs}
+          onRecord={handleStartRecording}
+          onStop={handleStopRecording}
+          onLeave={handleLeave}
+        />
       </div>
       <RoomAudioRenderer />
     </LiveKitRoom>
+  );
+}
+
+// Minimal control bar for local-only mode (no LiveKit context, so no mic/cam toggles).
+function LocalControlBar({
+  recState,
+  elapsedMs,
+  onRecord,
+  onStop,
+  onLeave,
+}: {
+  recState: PipelineState;
+  elapsedMs: number;
+  onRecord: () => void;
+  onStop: () => void;
+  onLeave: () => void;
+}) {
+  const isRecording = recState === "recording";
+  const isBusy = recState === "stopping" || recState === "uploading";
+
+  const s = Math.floor(elapsedMs / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  const timeStr = `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+
+  return (
+    <div className="flex items-center justify-center gap-3 py-5 px-4 bg-gray-900/80 backdrop-blur-md border-t border-white/5">
+      {isRecording ? (
+        <button
+          onClick={onStop}
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-full text-white font-medium shadow-lg shadow-red-600/20"
+        >
+          <StopIcon className="w-3 h-3" />
+          <span className="text-sm tabular-nums">Stop · {timeStr}</span>
+        </button>
+      ) : (
+        <button
+          onClick={onRecord}
+          disabled={isBusy}
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-50 rounded-full text-white font-medium"
+        >
+          <RecordIcon className="w-3 h-3 text-red-500" />
+          <span className="text-sm">
+            {isBusy
+              ? recState === "uploading"
+                ? "Uploading…"
+                : "Finalizing…"
+              : recState === "complete"
+                ? "Record again"
+                : "Record"}
+          </span>
+        </button>
+      )}
+      <button
+        onClick={onLeave}
+        aria-label="Leave"
+        className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg shadow-red-600/20"
+      >
+        <PhoneOffIcon />
+      </button>
+    </div>
   );
 }
