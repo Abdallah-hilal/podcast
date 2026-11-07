@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -97,6 +98,16 @@ async def join_session(
     session_data = session.data
     if session_data["status"] == "ended":
         raise HTTPException(status_code=400, detail="Session has ended")
+
+    # First successful join flips the session from "created" to "active" so
+    # the home-page badge reflects reality.
+    if session_data["status"] == "created":
+        db.table("podcast_sessions").update(
+            {
+                "status": "active",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", session_id).execute()
 
     existing = (
         db.table("podcast_participants")
