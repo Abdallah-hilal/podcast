@@ -1,0 +1,53 @@
+# Production stack for the podcast app. Runs the three services this repo
+# owns — backend API, worker, frontend. Supabase and LiveKit are self-hosted
+# separately on the same VPS and reached by URL.
+#
+# Ports bind to 127.0.0.1 only; the host nginx proxies the public subdomains
+# (api.abdallahhelal.com, app.abdallahhelal.com) to these ports over TLS.
+#
+# Secrets live in .env at the repo root — never commit it.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: podcast-backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: ./worker
+    container_name: podcast-worker
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Persist the Whisper model download across restarts.
+      - hf-cache:/root/.cache/huggingface
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+    container_name: podcast-frontend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  hf-cache:

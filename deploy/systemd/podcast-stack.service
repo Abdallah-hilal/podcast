@@ -1,0 +1,25 @@
+# Starts and stops the podcast docker-compose stack with the host.
+# Install:
+#   sudo cp deploy/systemd/podcast-stack.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now podcast-stack.service
+#
+# Adjust `WorkingDirectory` if the checkout isn't under /opt.
+
+[Unit]
+Description=Podcast studio stack (backend + worker + frontend)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/podcast
+ExecStart=/usr/bin/docker compose pull
+ExecStart=/usr/bin/docker compose up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

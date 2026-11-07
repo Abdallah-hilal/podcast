@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Required for Docker image: pack only the runtime files instead of relying
+  // on `next start` with the full node_modules tree.
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
