@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MicIcon, MicOffIcon, CamIcon, CamOffIcon } from "./icons";
 import { AudioLevelMeter } from "./AudioLevelMeter";
+import { Logo } from "@/components/common/Logo";
 
 export interface PreJoinChoice {
   cameraId: string | undefined;
@@ -33,7 +34,6 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
   const [err, setErr] = useState<string>("");
   const [ready, setReady] = useState(false);
 
-  // Initial permission request + device enumeration
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -59,7 +59,6 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
     };
   }, []);
 
-  // Live camera preview — restart when device or on/off changes
   useEffect(() => {
     let cancelled = false;
     const stopCurrent = () => {
@@ -102,8 +101,6 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    // If devices are unavailable (permission denied, no hardware), join as
-    // listener-only — LiveKit will blow up if we ask it to open a device it can't.
     const blocked = !!err;
     onJoin({
       cameraId: cameraId || undefined,
@@ -114,14 +111,35 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-6">
-      <div className="w-full max-w-2xl space-y-6">
-        <div className="text-center space-y-1">
-          <p className="text-xs uppercase tracking-widest text-gray-500">{roleLabel}</p>
-          <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{title}</h1>
+    <div
+      className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
+      style={{ background: "var(--gradient-teal)" }}
+    >
+      {/* Sunset glow top-right — brand warmth over the teal canvas */}
+      <div
+        aria-hidden
+        className="absolute -top-40 -right-40 w-96 h-96 rounded-full opacity-25 blur-3xl"
+        style={{ background: "var(--gradient-sunset)" }}
+      />
+
+      <div className="relative w-full max-w-2xl space-y-5">
+        <div className="flex justify-center">
+          <Logo size="md" linkTo="" />
         </div>
 
-        <div className="relative aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+        <div className="text-center space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-teal-300">
+            {roleLabel}
+          </p>
+          <h1 className="text-2xl md:text-3xl font-black text-white truncate">
+            {title}
+          </h1>
+        </div>
+
+        <div
+          className="relative aspect-video bg-black rounded-2xl overflow-hidden ring-1 ring-white/10"
+          style={{ boxShadow: "var(--shadow-photo)" }}
+        >
           {camOn && ready && !err ? (
             <video
               ref={videoRef}
@@ -132,14 +150,17 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               style={{ transform: "scaleX(-1)" }}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-600">
+            <div className="w-full h-full flex items-center justify-center text-teal-300/70">
               {!ready ? (
-                <span className="text-sm">Checking devices…</span>
+                <span className="text-sm animate-pulse">Checking devices…</span>
               ) : camOn ? (
                 <span className="text-sm">No camera</span>
               ) : (
-                <div className="w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center">
-                  <CamOffIcon className="w-8 h-8 text-gray-500" />
+                <div
+                  className="w-20 h-20 rounded-full flex items-center justify-center shadow-xl"
+                  style={{ background: "var(--gradient-sunset)" }}
+                >
+                  <CamOffIcon className="w-8 h-8 text-white" />
                 </div>
               )}
             </div>
@@ -150,8 +171,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               onClick={() => setMicOn((x) => !x)}
               aria-label={micOn ? "Turn off microphone" : "Turn on microphone"}
               className={[
-                "w-11 h-11 rounded-full flex items-center justify-center transition-colors shadow-lg",
-                micOn ? "bg-white/15 hover:bg-white/25 text-white" : "bg-red-600 hover:bg-red-700 text-white",
+                "w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-lg",
+                micOn
+                  ? "bg-white/15 hover:bg-white/25 text-white"
+                  : "bg-coral-600 hover:bg-coral-700 text-white",
               ].join(" ")}
             >
               {micOn ? <MicIcon /> : <MicOffIcon />}
@@ -160,8 +183,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               onClick={() => setCamOn((x) => !x)}
               aria-label={camOn ? "Turn off camera" : "Turn on camera"}
               className={[
-                "w-11 h-11 rounded-full flex items-center justify-center transition-colors shadow-lg",
-                camOn ? "bg-white/15 hover:bg-white/25 text-white" : "bg-red-600 hover:bg-red-700 text-white",
+                "w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-lg",
+                camOn
+                  ? "bg-white/15 hover:bg-white/25 text-white"
+                  : "bg-coral-600 hover:bg-coral-700 text-white",
               ].join(" ")}
             >
               {camOn ? <CamIcon /> : <CamOffIcon />}
@@ -170,17 +195,21 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         </div>
 
         {err && (
-          <p className="text-red-400 text-sm text-center">{err}</p>
+          <p className="text-center text-sm text-orange-400 bg-black/40 border border-orange-500/30 rounded-lg px-3 py-2 backdrop-blur-sm">
+            {err}
+          </p>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="space-y-1.5">
-            <span className="block text-xs uppercase tracking-wider text-gray-500">Camera</span>
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+              Camera
+            </span>
             <select
               value={cameraId}
               onChange={(e) => setCameraId(e.target.value)}
               disabled={!devices.cameras.length}
-              className="w-full px-3 py-2.5 bg-gray-900/80 border border-gray-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 disabled:opacity-50 backdrop-blur-sm"
             >
               {devices.cameras.length === 0 && <option value="">— No cameras —</option>}
               {devices.cameras.map((c) => (
@@ -191,12 +220,14 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             </select>
           </label>
           <label className="space-y-1.5">
-            <span className="block text-xs uppercase tracking-wider text-gray-500">Microphone</span>
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+              Microphone
+            </span>
             <select
               value={micId}
               onChange={(e) => setMicId(e.target.value)}
               disabled={!devices.mics.length}
-              className="w-full px-3 py-2.5 bg-gray-900/80 border border-gray-800 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 disabled:opacity-50 backdrop-blur-sm"
             >
               {devices.mics.length === 0 && <option value="">— No mics —</option>}
               {devices.mics.map((m) => (
@@ -210,9 +241,11 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
 
         {!err && (
           <div className="space-y-1.5">
-            <span className="block text-xs uppercase tracking-wider text-gray-500">Mic level</span>
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+              Mic level
+            </span>
             <AudioLevelMeter micId={micId || undefined} enabled={micOn && !!micId} />
-            <p className="text-[11px] text-gray-600">
+            <p className="text-[11px] text-teal-300/70">
               Say something — the bar should move. If it stays flat, pick a
               different mic above.
             </p>
@@ -222,9 +255,9 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         <button
           onClick={handleJoin}
           disabled={joining || disabled || (!ready && !err)}
-          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-semibold text-white text-base transition-colors shadow-lg shadow-blue-600/20"
+          className="w-full py-3.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-black text-white text-base transition-all shadow-lg hover:shadow-xl"
         >
-          {joining ? "Joining…" : disabled ? (disabledReason ?? "Unavailable") : "Join meeting"}
+          {joining ? "Joining…" : disabled ? (disabledReason ?? "Unavailable") : "Join meeting →"}
         </button>
       </div>
     </div>

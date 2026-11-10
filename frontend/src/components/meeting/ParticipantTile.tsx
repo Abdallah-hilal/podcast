@@ -37,9 +37,12 @@ export function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceh
   return (
     <div
       className={[
-        "relative w-full h-full rounded-2xl overflow-hidden bg-gray-900 shadow-xl ring-2 transition-all duration-150",
-        speaking && !muted ? "ring-blue-500 shadow-blue-500/20" : "ring-white/5",
+        "relative w-full h-full rounded-2xl overflow-hidden bg-black ring-2 transition-all duration-150",
+        speaking && !muted
+          ? "ring-coral-600 shadow-[0_0_0_4px_rgba(255,111,60,0.2)]"
+          : "ring-white/10",
       ].join(" ")}
+      style={{ boxShadow: "var(--shadow-photo)" }}
     >
       {hasVideo && "publication" in trackRef && trackRef.publication ? (
         <VideoTrack
@@ -48,19 +51,25 @@ export function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceh
           style={isLocal ? { transform: "scaleX(-1)" } : undefined}
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-          <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-3xl md:text-4xl font-bold text-white shadow-2xl">
+        <div
+          className="w-full h-full flex items-center justify-center"
+          style={{ background: "var(--gradient-teal)" }}
+        >
+          <div
+            className="w-20 h-20 md:w-28 md:h-28 rounded-full flex items-center justify-center text-3xl md:text-4xl font-black text-white shadow-2xl"
+            style={{ background: "var(--gradient-sunset)" }}
+          >
             {initials(name)}
           </div>
         </div>
       )}
 
       <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between pointer-events-none">
-        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md rounded-full px-3 py-1.5 max-w-full">
-          {muted && <MicOffIcon className="w-3.5 h-3.5 text-red-400 shrink-0" />}
-          <span className="text-xs md:text-sm font-medium text-white truncate">
+        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md rounded-full px-3 py-1.5 max-w-full ring-1 ring-white/10">
+          {muted && <MicOffIcon className="w-3.5 h-3.5 text-coral-500 shrink-0" />}
+          <span className="text-xs md:text-sm font-semibold text-white truncate">
             {name}
-            {isLocal && <span className="text-gray-400"> (You)</span>}
+            {isLocal && <span className="text-teal-300 font-normal"> (You)</span>}
           </span>
         </div>
       </div>

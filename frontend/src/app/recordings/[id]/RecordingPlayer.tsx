@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
+import { Logo } from "@/components/common/Logo";
 import type { TranscriptResponse, TranscriptSegment } from "@/types";
 
 const TRANSCRIPT_POLL_MS = 3000;
@@ -141,27 +142,43 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
   const rtl = isArabic(transcript?.text ?? null);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
+    <div className="min-h-screen bg-cream text-ink p-4 sm:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold truncate">
-            {title || "Recording"}
-          </h1>
+        <header className="flex items-center justify-between gap-3">
+          <Logo size="md" />
           <Link
             href="/recordings"
-            className="text-gray-400 hover:text-white text-sm"
+            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
           >
             ← Recordings
           </Link>
+        </header>
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+            Recording
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-black truncate">
+            {title || "Untitled"}
+          </h1>
         </div>
 
-        {err && <p className="text-red-400 text-sm">{err}</p>}
+        {err && (
+          <p className="text-coral-700 bg-coral-600/10 border border-coral-600/20 rounded-lg px-3 py-2 text-sm">
+            {err}
+          </p>
+        )}
 
-        {!url && !err && <p className="text-gray-500">Loading…</p>}
+        {!url && !err && (
+          <p className="text-ink-muted animate-pulse">Loading…</p>
+        )}
 
         {url && (
           <>
-            <div className="bg-black rounded-lg overflow-hidden">
+            <div
+              className="bg-canvas rounded-2xl overflow-hidden"
+              style={{ boxShadow: "var(--shadow-photo)" }}
+            >
               <video
                 ref={videoRef}
                 src={url}
@@ -173,9 +190,9 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
               <a
                 href={url}
                 download={`recording-${recordingId}.webm`}
-                className="inline-block px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
+                className="inline-block px-5 py-2.5 bg-coral-600 hover:bg-coral-700 text-white rounded-xl font-bold transition-colors shadow-md hover:shadow-lg"
               >
-                Download WebM
+                Download .webm
               </a>
             </div>
           </>
@@ -195,6 +212,14 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
   );
 }
 
+const TS_PILL: Record<string, { cls: string; label: string }> = {
+  ready: { cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10", label: "Ready" },
+  error: { cls: "bg-coral-600/15 text-coral-700 ring-1 ring-coral-600/30", label: "Error" },
+  processing: { cls: "bg-orange-400/20 text-coral-700 ring-1 ring-coral-600/20", label: "Processing" },
+  pending: { cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20", label: "Queued" },
+  none: { cls: "bg-cream-200 text-ink-muted", label: "Not yet" },
+};
+
 function TranscriptSection({
   transcript,
   rtl,
@@ -209,42 +234,38 @@ function TranscriptSection({
   onSeek: (s: number) => void;
 }) {
   const { status, text, segments, language, error } = transcript;
+  const pill = TS_PILL[status] ?? TS_PILL.none;
 
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-300">Transcript</h2>
+        <h2 className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+          Transcript
+        </h2>
         <span
-          className={`text-xs px-2 py-1 rounded ${
-            status === "ready"
-              ? "bg-green-900 text-green-300"
-              : status === "error"
-                ? "bg-red-900 text-red-300"
-                : status === "processing"
-                  ? "bg-yellow-900 text-yellow-300"
-                  : "bg-gray-700 text-gray-400"
-          }`}
+          className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-full ${pill.cls}`}
         >
-          {status}{language ? ` · ${language}` : ""}
+          {pill.label}
+          {language ? ` · ${language}` : ""}
         </span>
       </div>
 
       {(status === "pending" || status === "processing") && (
-        <p className="text-gray-500 text-sm">
+        <p className="text-ink-muted text-sm bg-cream-sunken/60 border border-dashed border-border-strong/40 rounded-xl px-4 py-3">
           Transcribing with Whisper… (first run downloads the model, so this
           can take a minute)
         </p>
       )}
 
       {status === "error" && (
-        <div className="space-y-2">
-          <p className="text-red-400 text-sm">
+        <div className="space-y-2 bg-coral-600/5 border border-coral-600/20 rounded-xl p-4">
+          <p className="text-coral-700 text-sm">
             {error || "Transcription failed."}
           </p>
           <button
             onClick={onRetry}
             disabled={retrying}
-            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-sm"
+            className="px-4 py-1.5 bg-coral-600 hover:bg-coral-700 text-white disabled:opacity-50 rounded-lg font-bold text-sm"
           >
             {retrying ? "Retrying…" : "Retry transcription"}
           </button>
@@ -256,46 +277,48 @@ function TranscriptSection({
           {segments && segments.length > 0 ? (
             <ol
               dir={rtl ? "rtl" : "ltr"}
-              className="bg-gray-900 rounded-lg divide-y divide-gray-800 max-h-96 overflow-y-auto"
+              className="bg-surface border border-border rounded-2xl divide-y divide-border max-h-96 overflow-y-auto"
+              style={{ boxShadow: "var(--shadow-sm)" }}
             >
               {segments.map((s: TranscriptSegment, i: number) => (
                 <li
                   key={i}
-                  className="flex gap-3 p-3 text-sm hover:bg-gray-800 cursor-pointer"
+                  className="flex gap-3 p-3 text-sm hover:bg-cream-sunken cursor-pointer transition-colors"
                   onClick={() => onSeek(s.start)}
                 >
                   <button
-                    className="shrink-0 text-blue-400 tabular-nums text-xs min-w-[48px] text-left"
+                    className="shrink-0 text-brand font-bold tabular-nums text-xs min-w-[48px] text-left"
                     aria-label={`Seek to ${fmtTime(s.start)}`}
                   >
                     {fmtTime(s.start)}
                   </button>
-                  <span className="text-gray-200">{s.text.trim()}</span>
+                  <span className="text-ink">{s.text.trim()}</span>
                 </li>
               ))}
             </ol>
           ) : text ? (
             <p
               dir={rtl ? "rtl" : "ltr"}
-              className="bg-gray-900 rounded-lg p-4 text-sm text-gray-200 whitespace-pre-wrap"
+              className="bg-surface border border-border rounded-2xl p-4 text-sm text-ink whitespace-pre-wrap"
+              style={{ boxShadow: "var(--shadow-sm)" }}
             >
               {text}
             </p>
           ) : (
-            <p className="text-gray-500 text-sm">(empty)</p>
+            <p className="text-ink-muted text-sm italic">(empty)</p>
           )}
           <div className="flex gap-3">
             <button
               onClick={onRetry}
               disabled={retrying}
-              className="px-3 py-1 text-xs text-gray-400 hover:text-white underline"
+              className="px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
             >
               {retrying ? "Re-transcribing…" : "Re-transcribe"}
             </button>
             {text && (
               <button
                 onClick={() => navigator.clipboard.writeText(text)}
-                className="px-3 py-1 text-xs text-gray-400 hover:text-white underline"
+                className="px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
               >
                 Copy transcript
               </button>

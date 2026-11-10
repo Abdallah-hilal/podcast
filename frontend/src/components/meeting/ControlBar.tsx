@@ -39,7 +39,7 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
   const isBusy = recState === "stopping" || recState === "uploading";
 
   return (
-    <div className="flex items-center justify-center gap-2 md:gap-3 py-5 px-4 bg-gray-900/80 backdrop-blur-md border-t border-white/5">
+    <div className="flex items-center justify-center gap-2 md:gap-3 py-5 px-4 bg-black/40 backdrop-blur-xl border-t border-white/10">
       <IconToggle
         on={mic.enabled}
         onClick={() => mic.toggle()}
@@ -55,12 +55,12 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}
       />
 
-      <div className="w-px h-8 bg-white/10 mx-1 md:mx-2" />
+      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" />
 
       {isRecording ? (
         <button
           onClick={onStop}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-full text-white font-medium transition-colors shadow-lg shadow-red-600/20"
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold transition-all shadow-lg hover:shadow-xl"
         >
           <StopIcon className="w-3 h-3" />
           <span className="text-sm tabular-nums">Stop · {fmt(elapsedMs)}</span>
@@ -69,9 +69,9 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
         <button
           onClick={onRecord}
           disabled={isBusy}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed rounded-full text-white font-medium transition-colors"
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-full text-white font-bold transition-all ring-1 ring-white/10"
         >
-          <RecordIcon className="w-3 h-3 text-red-500" />
+          <RecordIcon className="w-3 h-3 text-coral-500" />
           <span className="text-sm">
             {isBusy
               ? recState === "uploading"
@@ -84,12 +84,12 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
         </button>
       )}
 
-      <div className="w-px h-8 bg-white/10 mx-1 md:mx-2" />
+      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" />
 
       <button
         onClick={onLeave}
         aria-label="Leave meeting"
-        className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition-colors shadow-lg shadow-red-600/20"
+        className="w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center transition-all shadow-lg"
       >
         <PhoneOffIcon />
       </button>
@@ -115,10 +115,10 @@ function IconToggle({
       onClick={onClick}
       aria-label={label}
       className={[
-        "w-11 h-11 rounded-full flex items-center justify-center transition-colors",
+        "w-11 h-11 rounded-full flex items-center justify-center transition-all",
         on
-          ? "bg-white/10 hover:bg-white/15 text-white"
-          : "bg-red-600 hover:bg-red-700 text-white",
+          ? "bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10"
+          : "bg-coral-600 hover:bg-coral-700 text-white",
       ].join(" ")}
     >
       {on ? onIcon : offIcon}

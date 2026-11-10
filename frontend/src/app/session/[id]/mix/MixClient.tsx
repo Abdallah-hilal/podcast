@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
+import { Logo } from "@/components/common/Logo";
 import type { CompositeStatusResponse } from "@/types";
 
 const POLL_MS = 3000;
@@ -17,6 +18,14 @@ function fmtBytes(n: number | null | undefined): string {
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+
+const STATUS_PILL: Record<string, { cls: string; label: string }> = {
+  ready: { cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10", label: "Ready" },
+  error: { cls: "bg-coral-600/15 text-coral-700 ring-1 ring-coral-600/30", label: "Error" },
+  processing: { cls: "bg-orange-400/20 text-coral-700 ring-1 ring-coral-600/20", label: "Rendering" },
+  pending: { cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20", label: "Queued" },
+  none: { cls: "bg-cream-200 text-ink-muted", label: "Not rendered" },
+};
 
 export default function MixClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -101,7 +110,6 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
     try {
       await api.renderComposite(session.access_token, sessionId);
       await fetchStatus(session.access_token);
-      // Begin polling
       const token = session.access_token;
       const timer = setInterval(async () => {
         const s = await fetchStatus(token);
@@ -123,61 +131,83 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
     s.status !== "pending" &&
     s.status !== "processing";
 
+  const pill = s ? STATUS_PILL[s.status] ?? STATUS_PILL.none : STATUS_PILL.none;
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
+    <div className="min-h-screen bg-cream text-ink p-4 sm:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold truncate">
-            {title || "Session"} · Mix
-          </h1>
-          <Link href="/" className="text-gray-400 hover:text-white text-sm">
+        <header className="flex items-center justify-between gap-3">
+          <Logo size="md" />
+          <Link
+            href="/"
+            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+          >
             ← Sessions
           </Link>
+        </header>
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+            Mix
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-black truncate">
+            {title || "Session"}
+          </h1>
         </div>
 
-        {err && <p className="text-red-400 text-sm">{err}</p>}
+        {err && (
+          <p className="text-coral-700 bg-coral-600/10 border border-coral-600/20 rounded-lg px-3 py-2 text-sm">
+            {err}
+          </p>
+        )}
 
-        {!s && !err && <p className="text-gray-500">Loading…</p>}
+        {!s && !err && (
+          <p className="text-ink-muted animate-pulse">Loading…</p>
+        )}
 
         {s && (
           <>
-            <div className="bg-gray-900 rounded-lg p-4 space-y-2">
+            <div
+              className="bg-surface border border-border rounded-2xl p-5 space-y-3"
+              style={{ boxShadow: "var(--shadow-sm)" }}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Composite status</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+                  Composite status
+                </span>
                 <span
-                  className={`text-xs px-2 py-1 rounded ${
-                    s.status === "ready"
-                      ? "bg-green-900 text-green-300"
-                      : s.status === "error"
-                        ? "bg-red-900 text-red-300"
-                        : s.status === "processing"
-                          ? "bg-yellow-900 text-yellow-300"
-                          : s.status === "pending"
-                            ? "bg-blue-900 text-blue-300"
-                            : "bg-gray-700 text-gray-400"
-                  }`}
+                  className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-full ${pill.cls}`}
                 >
-                  {s.status}
+                  {pill.label}
                 </span>
               </div>
-              <div className="text-sm text-gray-400">
-                {s.ready_recordings} / {s.total_recordings} recording(s) ready
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
+                <span>
+                  <span className="font-bold text-ink tabular-nums">
+                    {s.ready_recordings}
+                  </span>
+                  {" / "}
+                  <span className="tabular-nums">{s.total_recordings}</span>
+                  {" recording(s) ready"}
+                </span>
+                {s.total_bytes != null && (
+                  <span className="tabular-nums">{fmtBytes(s.total_bytes)}</span>
+                )}
               </div>
-              {s.total_bytes != null && (
-                <div className="text-sm text-gray-400">
-                  Size: {fmtBytes(s.total_bytes)}
-                </div>
-              )}
+
               {s.error && (
-                <p className="text-sm text-red-400 whitespace-pre-wrap">{s.error}</p>
+                <p className="text-sm text-coral-700 bg-coral-600/5 border border-coral-600/20 rounded-lg px-3 py-2 whitespace-pre-wrap">
+                  {s.error}
+                </p>
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={handleRender}
                 disabled={!canRender || rendering}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium"
+                className="px-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-bold text-white shadow-md hover:shadow-lg transition-all"
               >
                 {rendering
                   ? "Queuing…"
@@ -190,20 +220,21 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
                         : "Render composite"}
               </button>
               {s.status === "ready" && s.download_url && (
-                <>
-                  <a
-                    href={s.download_url}
-                    download={`session-${sessionId}-composite.webm`}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm"
-                  >
-                    Download
-                  </a>
-                </>
+                <a
+                  href={s.download_url}
+                  download={`session-${sessionId}-composite.webm`}
+                  className="px-5 py-2.5 bg-surface border border-border hover:border-brand text-brand rounded-xl font-bold text-sm transition-colors"
+                >
+                  Download .webm
+                </a>
               )}
             </div>
 
             {s.status === "ready" && s.download_url && (
-              <div className="bg-black rounded-lg overflow-hidden">
+              <div
+                className="bg-canvas rounded-2xl overflow-hidden"
+                style={{ boxShadow: "var(--shadow-photo)" }}
+              >
                 <video
                   src={s.download_url}
                   controls
@@ -213,10 +244,10 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
             )}
 
             {(s.status === "pending" || s.status === "processing") && (
-              <p className="text-sm text-gray-500">
+              <div className="rounded-2xl border border-dashed border-border-strong/40 bg-cream-sunken/60 p-4 text-sm text-ink-muted">
                 ffmpeg is rendering the side-by-side mix. This can take a while
                 for longer recordings.
-              </p>
+              </div>
             )}
           </>
         )}

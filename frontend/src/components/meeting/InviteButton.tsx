@@ -38,10 +38,10 @@ export function InviteButton({ sessionId }: { sessionId: string }) {
     <button
       onClick={copy}
       className={[
-        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all",
+        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all",
         copied
-          ? "bg-green-900/40 text-green-300 ring-1 ring-green-700/50"
-          : "bg-blue-600/20 hover:bg-blue-600/30 text-blue-300",
+          ? "bg-teal-500/20 text-teal-100 ring-1 ring-teal-300/40"
+          : "bg-coral-600 hover:bg-coral-700 text-white shadow-md hover:shadow-lg",
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <LinkIcon />}

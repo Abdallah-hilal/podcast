@@ -128,12 +128,12 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-        <div className="max-w-md text-center space-y-4">
-          <p className="text-red-400 text-lg">{error}</p>
+      <div className="min-h-screen bg-cream flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4 bg-surface border border-border rounded-2xl p-6" style={{ boxShadow: "var(--shadow-photo)" }}>
+          <p className="text-coral-700 font-bold text-lg">{error}</p>
           <button
             onClick={() => router.push("/")}
-            className="text-blue-400 hover:underline"
+            className="inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl font-bold transition-colors shadow-md"
           >
             Back to Home
           </button>
@@ -144,8 +144,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   if (!localOnly && !joinInfo) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-500 text-sm animate-pulse">Connecting…</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--gradient-teal)" }}>
+        <div className="text-teal-100 text-sm animate-pulse">Connecting…</div>
       </div>
     );
   }
@@ -166,25 +166,34 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   // `withBadge` is for the in-room header (inside LiveKitRoom); the local-only
   // header omits it since there's no room context to count participants.
   const renderHeader = (withBadge: boolean) => (
-    <header className="flex items-center justify-between px-5 py-4 bg-gray-900/60 backdrop-blur-md border-b border-white/5">
-      <div className="min-w-0 flex-1 mr-4">
-        <h1 className="text-base md:text-lg font-semibold text-white truncate">
+    <header className="flex items-center justify-between px-4 sm:px-5 py-4 bg-black/30 backdrop-blur-xl border-b border-white/10">
+      <div className="min-w-0 flex-1 mr-4 flex items-center gap-3">
+        <div
+          aria-hidden
+          className="w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-black text-white shadow-md"
+          style={{ background: "var(--gradient-sunset)" }}
+        >
+          PS
+        </div>
+        <h1 className="text-base md:text-lg font-bold text-white truncate">
           {sessionTitle}
         </h1>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {withBadge && <ParticipantsBadge />}
         <InviteButton sessionId={sessionId} />
       </div>
     </header>
   );
 
+  const roomBgStyle = { background: "var(--gradient-teal)" };
+
   if (localOnly) {
     return (
-      <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+      <div className="min-h-screen text-white flex flex-col" style={roomBgStyle}>
         {renderHeader(false)}
         <div className="flex-1 relative flex items-center justify-center p-6">
-          <div className="max-w-md text-center text-gray-500">
+          <div className="max-w-md text-center text-teal-100/80">
             Live video call is not configured for this server. You can still
             record locally — your webm will be uploaded to Supabase.
           </div>
@@ -237,7 +246,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         }
       }}
     >
-      <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+      <div className="min-h-screen text-white flex flex-col" style={roomBgStyle}>
         {renderHeader(true)}
         <div className="flex-1 relative flex items-center justify-center p-4 md:p-6">
           <VideoGrid />
@@ -287,11 +296,11 @@ function LocalControlBar({
   const timeStr = `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 
   return (
-    <div className="flex items-center justify-center gap-3 py-5 px-4 bg-gray-900/80 backdrop-blur-md border-t border-white/5">
+    <div className="flex items-center justify-center gap-3 py-5 px-4 bg-black/40 backdrop-blur-xl border-t border-white/10">
       {isRecording ? (
         <button
           onClick={onStop}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-full text-white font-medium shadow-lg shadow-red-600/20"
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg"
         >
           <StopIcon className="w-3 h-3" />
           <span className="text-sm tabular-nums">Stop · {timeStr}</span>
@@ -300,9 +309,9 @@ function LocalControlBar({
         <button
           onClick={onRecord}
           disabled={isBusy}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-50 rounded-full text-white font-medium"
+          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-full text-white font-bold ring-1 ring-white/10"
         >
-          <RecordIcon className="w-3 h-3 text-red-500" />
+          <RecordIcon className="w-3 h-3 text-coral-500" />
           <span className="text-sm">
             {isBusy
               ? recState === "uploading"
@@ -317,7 +326,7 @@ function LocalControlBar({
       <button
         onClick={onLeave}
         aria-label="Leave"
-        className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg shadow-red-600/20"
+        className="w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
       >
         <PhoneOffIcon />
       </button>

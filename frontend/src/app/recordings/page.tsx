@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
 import * as api from "@/lib/api";
 import { DeleteButton } from "@/components/common/DeleteButton";
+import { Logo } from "@/components/common/Logo";
 
 type Row = {
   id: string;
@@ -37,13 +38,31 @@ function fmtDate(iso: string): string {
   });
 }
 
-const STATUS_CLASS: Record<string, string> = {
-  ready: "bg-green-900 text-green-300",
-  recording: "bg-blue-900 text-blue-300",
-  uploading: "bg-blue-900 text-blue-300",
-  uploaded: "bg-blue-900 text-blue-300",
-  processing: "bg-yellow-900 text-yellow-300",
-  error: "bg-red-900 text-red-300",
+const STATUS_CLASS: Record<string, { cls: string; label: string }> = {
+  ready: {
+    cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10",
+    label: "Ready",
+  },
+  recording: {
+    cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20",
+    label: "Recording",
+  },
+  uploading: {
+    cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20",
+    label: "Uploading",
+  },
+  uploaded: {
+    cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10",
+    label: "Uploaded",
+  },
+  processing: {
+    cls: "bg-orange-400/20 text-coral-700 ring-1 ring-coral-600/20",
+    label: "Processing",
+  },
+  error: {
+    cls: "bg-coral-600/15 text-coral-700 ring-1 ring-coral-600/30",
+    label: "Error",
+  },
 };
 
 export default function RecordingsPage() {
@@ -96,25 +115,41 @@ export default function RecordingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
+    <div className="min-h-screen bg-cream text-ink p-4 sm:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Recordings</h1>
-          <Link href="/" className="text-gray-400 hover:text-white text-sm">
+        <header className="flex items-center justify-between gap-3">
+          <Logo size="md" />
+          <Link
+            href="/"
+            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+          >
             ← Sessions
           </Link>
+        </header>
+
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black">Recordings</h1>
+          <p className="text-sm text-ink-muted mt-1">
+            One row per participant per session.
+          </p>
         </div>
 
-        {err && <p className="text-red-400 text-sm">{err}</p>}
+        {err && (
+          <p className="text-coral-700 bg-coral-600/10 border border-coral-600/20 rounded-lg px-3 py-2 text-sm">
+            {err}
+          </p>
+        )}
 
         {rows === null && !err && (
-          <p className="text-gray-500">Loading…</p>
+          <p className="text-ink-muted animate-pulse">Loading…</p>
         )}
 
         {rows && rows.length === 0 && (
-          <p className="text-gray-500">
-            No recordings yet. Start a session and record to see them here.
-          </p>
+          <div className="rounded-2xl border border-dashed border-border-strong/40 bg-cream-sunken/60 p-6 text-center">
+            <p className="text-sm text-ink-muted">
+              No recordings yet. Start a session and record to see them here.
+            </p>
+          </div>
         )}
 
         {rows && rows.length > 0 && (
@@ -123,46 +158,69 @@ export default function RecordingsPage() {
               const title = r.podcast_participants?.podcast_sessions?.title ?? "Untitled";
               const role = r.podcast_participants?.role ?? "—";
               const clickable = r.status === "ready";
-              const cls = STATUS_CLASS[r.status] ?? "bg-gray-700 text-gray-300";
+              const statusInfo = STATUS_CLASS[r.status] ?? { cls: "bg-cream-200 text-ink-muted", label: r.status };
               const ts = r.transcript_status;
+
               const inner = (
                 <>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{title}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {role} · {fmtDate(r.created_at)} · {fmtBytes(r.total_bytes)}
+                    <div className="truncate font-semibold text-ink group-hover:text-brand transition-colors">
+                      {title}
+                    </div>
+                    <div className="text-xs text-ink-muted mt-0.5 flex flex-wrap items-center gap-x-1">
+                      <span className="font-medium capitalize">{role}</span>
+                      <span>·</span>
+                      <span>{fmtDate(r.created_at)}</span>
+                      <span>·</span>
+                      <span>{fmtBytes(r.total_bytes)}</span>
                       {ts && ts !== "none" && (
-                        <> · transcript: <span className={
-                          ts === "ready" ? "text-green-400"
-                          : ts === "error" ? "text-red-400"
-                          : "text-yellow-400"
-                        }>{ts}</span></>
+                        <>
+                          <span>·</span>
+                          <span>
+                            transcript:{" "}
+                            <span
+                              className={
+                                ts === "ready"
+                                  ? "text-brand font-semibold"
+                                  : ts === "error"
+                                    ? "text-coral-700 font-semibold"
+                                    : "text-coral-500 font-semibold"
+                              }
+                            >
+                              {ts}
+                            </span>
+                          </span>
+                        </>
                       )}
                     </div>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded shrink-0 ${cls}`}>
-                    {r.status}
+                  <span
+                    className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-full shrink-0 ${statusInfo.cls}`}
+                  >
+                    {statusInfo.label}
                   </span>
                 </>
               );
+
               return (
                 <li
                   key={r.id}
-                  className={`relative flex items-center gap-4 p-4 rounded-lg transition-colors ${
+                  className={`group relative flex items-center gap-3 p-4 rounded-xl border transition-all ${
                     clickable
-                      ? "bg-gray-900 hover:bg-gray-800"
-                      : "bg-gray-900/60 opacity-60"
+                      ? "bg-surface border-border hover:border-brand/30"
+                      : "bg-cream-sunken/60 border-border/50 opacity-70"
                   }`}
+                  style={{ boxShadow: clickable ? "var(--shadow-sm)" : undefined }}
                 >
                   {clickable ? (
                     <Link
                       href={`/recordings/${r.id}`}
-                      className="flex items-center gap-4 flex-1 min-w-0"
+                      className="flex items-center gap-3 flex-1 min-w-0"
                     >
                       {inner}
                     </Link>
                   ) : (
-                    <div className="flex items-center gap-4 flex-1 min-w-0 cursor-not-allowed">
+                    <div className="flex items-center gap-3 flex-1 min-w-0 cursor-not-allowed">
                       {inner}
                     </div>
                   )}

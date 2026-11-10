@@ -1,29 +1,36 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Tajawal, Caveat } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+// Brand font from abdallahhelal.com — Latin + Arabic glyphs; 800 for display,
+// 700 bold, 500 medium, 400 regular, 300 light.
+const tajawal = Tajawal({
+  variable: "--font-sans",
+  subsets: ["latin", "arabic"],
+  weight: ["300", "400", "500", "700", "800", "900"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Hand / accent font — used sparingly (marker highlights, small flourishes).
+const caveat = Caveat({
+  variable: "--font-hand",
   subsets: ["latin"],
+  weight: ["400", "700"],
 });
 
 export const metadata: Metadata = {
   title: "Podcast Studio",
-  description: "Remote podcast recording studio",
+  description: "Remote podcast recording studio by Abdallah Helal",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${tajawal.variable} ${caveat.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col font-sans bg-cream text-ink">
+        {children}
+      </body>
     </html>
   );
 }

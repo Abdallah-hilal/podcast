@@ -1,26 +1,134 @@
 @import "tailwindcss";
 
+/*
+ * Brand palette lifted from abdallahhelal.com — same teal / orange / cream
+ * tokens, same font. Everything in the app renders with these; Tailwind's
+ * utility arbitrary values (bg-teal, text-brand, etc.) resolve through the
+ * @theme block below.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Teals (brand primary) */
+  --color-teal-900: #155263;
+  --color-teal-800: #174b5c;
+  --color-teal-700: #1d6f85;
+  --color-teal-500: #2c8ba3;
+  --color-teal-300: #7fb8c8;
+  --color-teal-100: #dcedf1;
+
+  /* Oranges / corals (brand accent) */
+  --color-orange-700: #e85f2f;
+  --color-orange-600: #ff6f3c;
+  --color-orange-500: #ff9a3c;
+  --color-orange-400: #ffc93c;
+
+  /* Warm neutrals */
+  --color-cream-0:   #ffffff;
+  --color-cream-50:  #fbf7f3;  /* page bg */
+  --color-cream-100: #f3ece4;  /* sunken surface */
+  --color-cream-200: #e4d9cd;  /* subtle border */
+  --color-cream-400: #b9aa9c;  /* strong border / muted icon */
+  --color-cream-600: #786a5f;  /* secondary text */
+  --color-cream-800: #362e29;  /* strong text */
+  --color-cream-900: #1c1613;  /* primary text */
+
+  /* Semantic aliases — change intent, not hex */
+  --color-bg:              var(--color-cream-50);
+  --color-bg-sunken:       var(--color-cream-100);
+  --color-surface:         var(--color-cream-0);
+  --color-ink:             var(--color-cream-900);
+  --color-ink-muted:       var(--color-cream-600);
+  --color-brand:           var(--color-teal-900);
+  --color-brand-hover:     var(--color-teal-700);
+  --color-accent:          var(--color-orange-600);
+  --color-accent-hover:    var(--color-orange-700);
+  --color-border:          var(--color-cream-200);
+  --color-border-strong:   var(--color-cream-400);
+
+  /* Dark surfaces (meeting room + canvases) */
+  --color-canvas:          var(--color-teal-900);
+  --color-canvas-deep:     #0e3c48;
+  --color-ink-on-dark:     var(--color-cream-50);
+  --color-ink-on-dark-dim: var(--color-teal-300);
+
+  /* Signature gradients */
+  --gradient-sunset: linear-gradient(135deg, var(--color-orange-600) 0%, var(--color-orange-500) 50%, var(--color-orange-400) 100%);
+  --gradient-teal:   linear-gradient(160deg, var(--color-canvas-deep) 0%, var(--color-teal-900) 55%, var(--color-teal-700) 100%);
+
+  /* Marker highlight (the yellow underline on headings) */
+  --hl-marker:        linear-gradient(transparent 58%, rgba(255, 201, 60, .55) 58%, rgba(255, 201, 60, .55) 94%, transparent 94%);
+  --hl-marker-coral:  linear-gradient(transparent 58%, rgba(255, 111, 60, .28) 58%, rgba(255, 111, 60, .28) 94%, transparent 94%);
+
+  /* Soft warm shadows */
+  --shadow-sm:    0 1px 2px rgba(28, 22, 19, .06);
+  --shadow-md:    0 2px 4px rgba(28, 22, 19, .08), 0 8px 24px rgba(28, 22, 19, .08);
+  --shadow-photo: 0 2px 4px rgba(28, 22, 19, .08), 0 18px 40px rgba(28, 22, 19, .16);
 }
 
+/*
+ * Tailwind 4 theme — these feed utilities like bg-cream, text-ink, border-border.
+ * (Tailwind 4 reads tokens from the @theme block; the raw CSS vars above are
+ *  also accessible via `[color:var(--color-teal-900)]` arbitrary utilities.)
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-cream: var(--color-bg);
+  --color-cream-sunken: var(--color-bg-sunken);
+  --color-surface: var(--color-surface);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-brand: var(--color-brand);
+  --color-brand-hover: var(--color-brand-hover);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-canvas: var(--color-canvas);
+  --color-canvas-deep: var(--color-canvas-deep);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-teal-100: var(--color-teal-100);
+  --color-teal-300: var(--color-teal-300);
+  --color-teal-500: var(--color-teal-500);
+  --color-teal-700: var(--color-teal-700);
+  --color-teal-800: var(--color-teal-800);
+  --color-teal-900: var(--color-teal-900);
+
+  --color-coral-400: var(--color-orange-400);
+  --color-coral-500: var(--color-orange-500);
+  --color-coral-600: var(--color-orange-600);
+  --color-coral-700: var(--color-orange-700);
+
+  --font-sans: var(--font-sans), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-hand: var(--font-hand), cursive;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Marker highlight on a span — <span class="marker">word</span> */
+.marker {
+  background-image: var(--hl-marker);
+  padding: 0 .1em;
+}
+.marker-coral {
+  background-image: var(--hl-marker-coral);
+  padding: 0 .1em;
+}
+
+/* Scrollbars that match the theme (subtle) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-muted);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }

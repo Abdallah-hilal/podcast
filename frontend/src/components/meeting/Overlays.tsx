@@ -14,12 +14,12 @@ function fmt(ms: number): string {
 
 export function RecBadge({ elapsedMs }: { elapsedMs: number }) {
   return (
-    <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-red-600 text-white px-3 py-1.5 rounded-full text-xs md:text-sm font-semibold shadow-xl shadow-red-600/30">
+    <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-coral-600 text-white px-3 py-1.5 rounded-full text-xs md:text-sm font-bold shadow-xl">
       <span className="relative flex w-2.5 h-2.5">
         <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
         <span className="relative rounded-full bg-white w-2.5 h-2.5" />
       </span>
-      <span className="tabular-nums">REC · {fmt(elapsedMs)}</span>
+      <span className="tabular-nums tracking-wider">REC · {fmt(elapsedMs)}</span>
     </div>
   );
 }
@@ -59,15 +59,15 @@ export function UploadBadge({
 
   const color =
     state === "complete"
-      ? "bg-green-900/80 text-green-300 border-green-800"
-      : "bg-black/70 text-gray-200 border-white/10";
+      ? "bg-teal-900/85 text-teal-100 border-teal-700"
+      : "bg-black/70 text-white border-white/10";
 
   return (
     <div
       className={`absolute bottom-4 right-4 z-20 flex items-center gap-2 backdrop-blur-md border px-3 py-1.5 rounded-full text-xs font-medium shadow-lg ${color}`}
     >
       {state !== "complete" && (
-        <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+        <span className="w-2 h-2 rounded-full bg-coral-500 animate-pulse" />
       )}
       <span className="tabular-nums">{msg}</span>
     </div>

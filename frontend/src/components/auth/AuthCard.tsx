@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/components/common/Logo";
 
 type Mode = "signin" | "signup";
 
@@ -12,7 +13,6 @@ interface Props {
 
 function sanitizeNext(raw: string | null): string {
   if (!raw) return "/";
-  // Only allow relative in-app paths, not open-redirects to arbitrary URLs.
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
 }
@@ -59,7 +59,6 @@ export function AuthCard({ initialMode }: Props) {
           setError(error.message);
           return;
         }
-        // If email confirmation is off, the user is already signed in.
         if (data.session) {
           router.push(next);
           return;
@@ -75,17 +74,34 @@ export function AuthCard({ initialMode }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-1">
-          <h1 className="text-3xl font-bold text-white">Podcast Studio</h1>
-          <p className="text-sm text-gray-500">
+    <div className="min-h-screen bg-cream flex items-center justify-center p-6 relative overflow-hidden">
+      {/* Decorative orange glow in the top-right, teal in the bottom-left — subtle brand presence */}
+      <div
+        aria-hidden
+        className="absolute -top-32 -right-32 w-80 h-80 rounded-full opacity-40 blur-3xl"
+        style={{ background: "var(--gradient-sunset)" }}
+      />
+      <div
+        aria-hidden
+        className="absolute -bottom-32 -left-32 w-80 h-80 rounded-full opacity-25 blur-3xl"
+        style={{ background: "var(--gradient-teal)" }}
+      />
+
+      <div className="relative w-full max-w-md space-y-6">
+        <div className="text-center space-y-2">
+          <div className="flex justify-center">
+            <Logo size="lg" linkTo="" />
+          </div>
+          <p className="text-sm text-ink-muted">
             Record together. Each side uploads its own.
           </p>
         </div>
 
-        <div className="bg-gray-900/80 backdrop-blur-sm border border-white/5 rounded-2xl p-6 shadow-2xl">
-          <div className="flex gap-1 p-1 bg-gray-950/70 rounded-lg mb-5">
+        <div
+          className="bg-surface border border-border rounded-2xl p-6"
+          style={{ boxShadow: "var(--shadow-photo)" }}
+        >
+          <div className="flex gap-1 p-1 bg-cream-sunken rounded-xl mb-5">
             <TabButton
               active={mode === "signin"}
               onClick={() => {
@@ -110,7 +126,7 @@ export function AuthCard({ initialMode }: Props) {
 
           <form onSubmit={handleSubmit} className="space-y-3">
             <label className="block space-y-1.5">
-              <span className="block text-xs uppercase tracking-wider text-gray-500">
+              <span className="block text-[11px] uppercase tracking-widest font-bold text-ink-muted">
                 Email
               </span>
               <input
@@ -120,12 +136,12 @@ export function AuthCard({ initialMode }: Props) {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="w-full px-3 py-2.5 bg-gray-950/60 border border-gray-800 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 bg-cream-sunken/70 border border-border rounded-xl text-ink placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-colors"
               />
             </label>
 
             <label className="block space-y-1.5">
-              <span className="block text-xs uppercase tracking-wider text-gray-500">
+              <span className="block text-[11px] uppercase tracking-widest font-bold text-ink-muted">
                 Password
               </span>
               <input
@@ -140,21 +156,25 @@ export function AuthCard({ initialMode }: Props) {
                 autoComplete={
                   mode === "signup" ? "new-password" : "current-password"
                 }
-                className="w-full px-3 py-2.5 bg-gray-950/60 border border-gray-800 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 bg-cream-sunken/70 border border-border rounded-xl text-ink placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-colors"
               />
             </label>
 
             {error && (
-              <p className="text-red-400 text-sm px-1">{error}</p>
+              <p className="text-coral-700 bg-coral-600/10 border border-coral-600/20 rounded-lg px-3 py-2 text-sm">
+                {error}
+              </p>
             )}
             {notice && (
-              <p className="text-green-400 text-sm px-1">{notice}</p>
+              <p className="text-brand bg-teal-100 border border-teal-900/10 rounded-lg px-3 py-2 text-sm">
+                {notice}
+              </p>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors shadow-lg shadow-blue-600/20"
+              className="w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-60 text-white rounded-xl font-bold transition-colors shadow-md hover:shadow-lg"
             >
               {loading
                 ? mode === "signin"
@@ -166,6 +186,10 @@ export function AuthCard({ initialMode }: Props) {
             </button>
           </form>
         </div>
+
+        <p className="text-center text-xs text-ink-muted">
+          Built by <a href="https://abdallahhelal.com" className="font-bold text-brand hover:text-coral-600 transition-colors">Abdallah Helal</a>
+        </p>
       </div>
     </div>
   );
@@ -185,10 +209,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={[
-        "flex-1 py-2 text-sm font-medium rounded-md transition-colors",
+        "flex-1 py-2 text-sm font-bold rounded-lg transition-all",
         active
-          ? "bg-gray-800 text-white shadow"
-          : "text-gray-500 hover:text-gray-300",
+          ? "bg-surface text-brand shadow-sm"
+          : "text-ink-muted hover:text-ink",
       ].join(" ")}
     >
       {children}
