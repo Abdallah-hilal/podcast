@@ -29,6 +29,8 @@ interface UploadBadgeProps {
   batchesUploaded: number;
   batchesTotal: number;
   bytesUploaded: number;
+  batchesFailed?: number;
+  lastError?: string;
 }
 
 function fmtBytes(n: number): string {
@@ -43,11 +45,18 @@ export function UploadBadge({
   batchesUploaded,
   batchesTotal,
   bytesUploaded,
+  batchesFailed = 0,
+  lastError,
 }: UploadBadgeProps) {
-  if (state === "idle" || state === "error") return null;
+  if (state === "idle") return null;
 
-  const msg =
-    state === "recording"
+  const isError = state === "error";
+
+  const msg = isError
+    ? batchesFailed > 0
+      ? `Upload failed · ${batchesFailed} batch${batchesFailed > 1 ? "es" : ""}`
+      : "Upload failed"
+    : state === "recording"
       ? batchesTotal > 0
         ? `Uploading · ${batchesUploaded}/${batchesTotal}`
         : "Recording locally"
@@ -57,18 +66,21 @@ export function UploadBadge({
           ? `Uploading · ${batchesUploaded}/${batchesTotal}`
           : "Saved · " + fmtBytes(bytesUploaded);
 
-  const color =
-    state === "complete"
+  const color = isError
+    ? "bg-coral-700 text-white border-coral-600 shadow-coral-700/30"
+    : state === "complete"
       ? "bg-teal-900/85 text-teal-100 border-teal-700"
       : "bg-black/70 text-white border-white/10";
 
   return (
     <div
       className={`absolute bottom-4 right-4 z-20 flex items-center gap-2 backdrop-blur-md border px-3 py-1.5 rounded-full text-xs font-medium shadow-lg ${color}`}
+      title={isError && lastError ? lastError : undefined}
     >
-      {state !== "complete" && (
+      {!isError && state !== "complete" && (
         <span className="w-2 h-2 rounded-full bg-coral-500 animate-pulse" />
       )}
+      {isError && <span className="text-white font-bold">⚠</span>}
       <span className="tabular-nums">{msg}</span>
     </div>
   );

@@ -12,6 +12,11 @@ import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
 
 const THROTTLE_BPS = 2_000_000; // 2 Mbps during live call
+const MAX_BATCH_ATTEMPTS = 3;
+// Give the final wait a ceiling — a hung upload shouldn't trap the user in
+// "uploading…" forever. 3 min accommodates a slow-but-recovering connection
+// finishing a large batch; anything longer is a real network failure.
+const STOP_WAIT_TIMEOUT_MS = 180_000;
 
 export type TokenGetter = () => Promise<string>;
 
@@ -31,6 +36,7 @@ export class RecordingPipeline {
   private bytesRecorded = 0;
   private bytesUploaded = 0;
   private chunksRecorded = 0;
+  private lastError?: string;
   // Called before every backend API call and every TUS upload to pull a
   // fresh Supabase JWT. Avoids baking a token at start() that would expire
   // after an hour mid-session and silently 401 every upload.
@@ -52,6 +58,23 @@ export class RecordingPipeline {
     this.onStateChange = cb;
   }
 
+  /** Clear per-recording state so a second take can reuse this instance. */
+  private reset(): void {
+    this.recorder = null;
+    this.stream = null;
+    this.ownsStream = false;
+    this.store = new OPFSStore();
+    this.batchManager = new BatchManager();
+    this.uploader = new TusUploader();
+    this.recordingId = null;
+    this.startTime = 0;
+    this.bytesRecorded = 0;
+    this.bytesUploaded = 0;
+    this.chunksRecorded = 0;
+    this.lastError = undefined;
+    this._state = "idle";
+  }
+
   /**
    * Begin a recording against `stream`. The caller is responsible for providing
    * the MediaStream — typically the LiveKit local-participant tracks so the
@@ -69,6 +92,12 @@ export class RecordingPipeline {
     stream: MediaStream,
     opts?: { ownsStream?: boolean }
   ): Promise<void> {
+    // Allow restarting after a finished or failed run — otherwise "Record
+    // again" in the UI throws because the pipeline is still in a terminal
+    // state from the previous take.
+    if (this._state === "complete" || this._state === "error") {
+      this.reset();
+    }
     if (this._state !== "idle") throw new Error(`Cannot start from ${this._state}`);
     if (stream.getTracks().length === 0) {
       throw new Error("Recording stream has no tracks — turn on mic or camera first");
@@ -120,7 +149,25 @@ export class RecordingPipeline {
     // Feed to batch manager
     const sealed = this.batchManager.addChunk(index, chunk.size);
     if (sealed) {
-      this.uploadBatch(sealed).catch(console.error);
+      void this.attemptUpload(sealed);
+    }
+  }
+
+  /**
+   * Fire-and-forget upload wrapper that catches failures and marks the batch
+   * so stop() can retry it later, rather than silently logging to the console
+   * and leaving the pipeline unable to finalize.
+   */
+  private async attemptUpload(batch: ReturnType<BatchManager["seal"]>) {
+    try {
+      await this.uploadBatch(batch);
+    } catch (err) {
+      this.batchManager.markFailed(batch.id, err);
+      this.lastError = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `Batch ${batch.sequenceNumber} failed (attempt ${batch.failedAttempts + 1}):`,
+        err,
+      );
     }
   }
 
@@ -138,13 +185,18 @@ export class RecordingPipeline {
     });
 
     token = await this.getToken();
+    // TUS reports cumulative bytes per upload; track the delta since the
+    // last tick so our running total matches reality instead of growing
+    // quadratically with each batch.
+    let lastReported = 0;
     await this.uploader.upload({
       batchId: registered.batch_id,
       blob,
       storagePath: registered.storage_path,
       authToken: token,
       onProgress: (uploaded) => {
-        this.bytesUploaded += uploaded;
+        this.bytesUploaded += uploaded - lastReported;
+        lastReported = uploaded;
       },
     });
 
@@ -168,17 +220,38 @@ export class RecordingPipeline {
     this.setState("uploading");
     this.uploader.setThrottle(null); // Remove throttle
 
-    // Upload final batch if exists
+    // Push the final batch (if any) through the retry wrapper so it joins
+    // whatever else may need retrying rather than being special.
     if (finalBatch) {
-      await this.uploadBatch(finalBatch);
+      void this.attemptUpload(finalBatch);
     }
 
-    // Wait for any in-progress uploads
-    while (this.uploader.activeCount > 0) {
+    // Wait for any in-progress uploads to settle, bounded by STOP_WAIT_TIMEOUT_MS.
+    const waitDeadline = Date.now() + STOP_WAIT_TIMEOUT_MS;
+    while (this.uploader.activeCount > 0 && Date.now() < waitDeadline) {
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    // Finalize
+    // Retry every batch still pending — a connection hiccup during recording
+    // shouldn't fail the whole finalize if the network is back now.
+    for (const pending of this.batchManager.getPendingBatches()) {
+      if (Date.now() >= waitDeadline) break;
+      if (pending.failedAttempts >= MAX_BATCH_ATTEMPTS) continue;
+      await this.attemptUpload(pending);
+    }
+
+    // Final tally — if anything still hasn't uploaded, surface an error
+    // instead of calling /finalize (which would 400 on missing batches).
+    const stillPending = this.batchManager.getPendingBatches();
+    if (stillPending.length > 0) {
+      this.lastError =
+        `${stillPending.length} batch(es) failed to upload` +
+        (this.lastError ? ` (${this.lastError})` : "");
+      this.setState("error");
+      // Keep the stream live so the caller can decide whether to retry.
+      return;
+    }
+
     const finalToken = await this.getToken();
     await api.finalizeRecording(finalToken, this.recordingId);
 
@@ -188,6 +261,13 @@ export class RecordingPipeline {
       this.stream?.getTracks().forEach((t) => t.stop());
     }
     this.stream = null;
+
+    // Local chunks are safe to drop now that the final file is on Supabase.
+    // Fire-and-forget: a cleanup failure is non-fatal, the chunks just linger
+    // in the user's OPFS until the next session reclaims the directory.
+    void this.store.cleanup().catch((err) => {
+      console.warn("OPFS cleanup failed (non-fatal):", err);
+    });
 
     this.setState("complete");
   }
@@ -202,6 +282,8 @@ export class RecordingPipeline {
       chunksRecorded: this.chunksRecorded,
       batchesSealed: batchProgress.total,
       batchesUploaded: batchProgress.uploaded,
+      batchesFailed: batchProgress.failed,
+      lastError: this.lastError,
     };
   }
 }

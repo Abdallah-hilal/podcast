@@ -48,14 +48,36 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     chunksRecorded: 0,
     batchesSealed: 0,
     batchesUploaded: 0,
+    batchesFailed: 0,
   });
 
   useEffect(() => {
-    if (pipelineState === "idle" || pipelineState === "complete") return;
+    // Live polling only while something is actually moving — dynamic
+    // elapsedMs / batch counters. Terminal states (idle, complete, error)
+    // don't need a 2 Hz re-render tax on the whole LiveKit tree.
+    if (
+      pipelineState === "idle" ||
+      pipelineState === "complete" ||
+      pipelineState === "error"
+    )
+      return;
     const interval = setInterval(() => {
       setProgress(pipelineRef.current.getProgress());
     }, 500);
     return () => clearInterval(interval);
+  }, [pipelineState]);
+
+  // Make sure the final progress snapshot (including any error details)
+  // reaches state when the pipeline transitions out of a running state —
+  // otherwise the UI shows stale pre-stop numbers.
+  useEffect(() => {
+    if (
+      pipelineState === "complete" ||
+      pipelineState === "error" ||
+      pipelineState === "idle"
+    ) {
+      setProgress(pipelineRef.current.getProgress());
+    }
   }, [pipelineState]);
 
   useEffect(() => {
@@ -223,6 +245,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesUploaded={progress.batchesUploaded}
             batchesTotal={progress.batchesSealed}
             bytesUploaded={progress.bytesUploaded}
+            batchesFailed={progress.batchesFailed}
+            lastError={progress.lastError}
           />
         </div>
         <LocalControlBar
@@ -277,6 +301,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesUploaded={progress.batchesUploaded}
             batchesTotal={progress.batchesSealed}
             bytesUploaded={progress.bytesUploaded}
+            batchesFailed={progress.batchesFailed}
+            lastError={progress.lastError}
           />
         </div>
         <RoomRecordingControls

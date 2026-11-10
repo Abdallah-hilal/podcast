@@ -6,7 +6,11 @@ export interface Batch {
   startChunkIndex: number;
   endChunkIndex: number;
   totalSize: number;
-  status: "accumulating" | "ready" | "uploading" | "uploaded";
+  status: "accumulating" | "ready" | "uploading" | "uploaded" | "failed";
+  /** Number of upload attempts that have failed. Reset to 0 on success. */
+  failedAttempts: number;
+  /** Most recent upload error message, for surfacing to the UI. */
+  lastError?: string;
 }
 
 const TARGET_BATCH_SIZE = 64 * 1024 * 1024; // 64MB
@@ -31,6 +35,7 @@ export class BatchManager {
       endChunkIndex: this.currentChunkStart,
       totalSize: 0,
       status: "accumulating",
+      failedAttempts: 0,
     };
     return batch;
   }
@@ -71,7 +76,23 @@ export class BatchManager {
 
   markUploaded(batchId: string) {
     const batch = this.sealedBatches.find((b) => b.id === batchId);
-    if (batch) batch.status = "uploaded";
+    if (batch) {
+      batch.status = "uploaded";
+      batch.lastError = undefined;
+    }
+  }
+
+  markFailed(batchId: string, err: unknown) {
+    const batch = this.sealedBatches.find((b) => b.id === batchId);
+    if (!batch) return;
+    batch.status = "failed";
+    batch.failedAttempts += 1;
+    batch.lastError = err instanceof Error ? err.message : String(err);
+  }
+
+  /** Batches not yet successfully uploaded. Includes "ready" and "failed". */
+  getPendingBatches(): Batch[] {
+    return this.sealedBatches.filter((b) => b.status !== "uploaded");
   }
 
   getProgress() {
@@ -79,6 +100,9 @@ export class BatchManager {
     const uploaded = this.sealedBatches.filter(
       (b) => b.status === "uploaded"
     ).length;
-    return { total, uploaded, pending: total - uploaded };
+    const failed = this.sealedBatches.filter(
+      (b) => b.status === "failed"
+    ).length;
+    return { total, uploaded, failed, pending: total - uploaded };
   }
 }

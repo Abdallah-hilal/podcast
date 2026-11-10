@@ -83,4 +83,7 @@ export interface PipelineProgress {
   chunksRecorded: number;
   batchesSealed: number;
   batchesUploaded: number;
+  batchesFailed: number;
+  /** Most recent batch upload error, if any. */
+  lastError?: string;
 }
