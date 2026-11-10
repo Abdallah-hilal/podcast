@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import recordings, sessions, webhooks
+from app.routers import recordings, sessions
 from app.services import livekit
 
 logging.basicConfig(level=logging.INFO)
@@ -18,10 +18,15 @@ app = FastAPI(title="Podcast Studio API", version="0.1.0")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s\n%s", exc, traceback.format_exc())
+    # Keep the full traceback + exception type in logs, but never send it to
+    # the client — `str(exc)` can carry DB column names, file paths, service
+    # keys echoed in error messages, etc. The client only needs to know the
+    # request failed and give the user a clean message.
+    logger.error("Unhandled error on %s %s: %s\n%s",
+                 request.method, request.url.path, exc, traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 app.add_middleware(
@@ -34,7 +39,6 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(recordings.router)
-app.include_router(webhooks.router)
 
 
 @app.get("/health")

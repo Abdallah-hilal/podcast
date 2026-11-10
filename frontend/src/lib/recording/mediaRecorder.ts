@@ -73,6 +73,23 @@ export function getStreamSettings(stream: MediaStream) {
   };
 }
 
+/**
+ * Pick a VP9/VP8 bitrate for the stream's actual resolution. A fixed 8 Mbps
+ * was wasteful on a 360p mobile capture (2–3x the data needed) and still a
+ * bit thin on 4K. These targets land at roughly 0.1 bits / pixel · frame for
+ * VP9, which is where YouTube's VP9 recommendations sit for live-ish content.
+ */
+function pickVideoBitrate(stream: MediaStream): number {
+  const settings = stream.getVideoTracks()[0]?.getSettings();
+  const w = settings?.width ?? 1280;
+  const h = settings?.height ?? 720;
+  const pixels = w * h;
+  if (pixels <= 640 * 480) return 1_500_000;
+  if (pixels <= 1280 * 720) return 3_500_000;
+  if (pixels <= 1920 * 1080) return 6_000_000;
+  return 10_000_000;
+}
+
 export function createRecorder(
   stream: MediaStream,
   mimeType: string,
@@ -80,7 +97,8 @@ export function createRecorder(
 ): MediaRecorder {
   const recorder = new MediaRecorder(stream, {
     mimeType,
-    videoBitsPerSecond: 8_000_000,
+    videoBitsPerSecond: pickVideoBitrate(stream),
+    audioBitsPerSecond: 128_000,
   });
 
   let chunkIndex = 0;

@@ -46,6 +46,21 @@ async def start_recording(
 ):
     db = _get_db()
 
+    # An ended session shouldn't accept new recordings — if the client raced
+    # a stop against a late start() call, we'd otherwise orphan a recording
+    # row with no way to hit /finalize.
+    session = (
+        db.table("podcast_sessions")
+        .select("status")
+        .eq("id", session_id)
+        .single()
+        .execute()
+    )
+    if not session.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.data["status"] == "ended":
+        raise HTTPException(status_code=400, detail="Session has ended")
+
     participant = (
         db.table("podcast_participants")
         .select("id")

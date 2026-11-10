@@ -12,8 +12,8 @@ import { Logo } from "@/components/common/Logo";
 export default function HomePage() {
   const [title, setTitle] = useState("");
   const [sessions, setSessions] = useState<
-    { id: string; title: string; status: string }[]
-  >([]);
+    { id: string; title: string; status: string }[] | null
+  >(null);
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function HomePage() {
         .select("id, title, status")
         .order("created_at", { ascending: false })
         .then(({ data }) => {
-          if (data) setSessions(data);
+          setSessions(data ?? []);
         });
     });
   }, [router, supabase]);
@@ -59,7 +59,7 @@ export default function HomePage() {
   async function handleDelete(sessionId: string) {
     if (!token) return;
     await api.deleteSession(token, sessionId);
-    setSessions((xs) => xs.filter((s) => s.id !== sessionId));
+    setSessions((xs) => xs?.filter((s) => s.id !== sessionId) ?? xs);
   }
 
   if (!token) return null;
@@ -118,45 +118,80 @@ export default function HomePage() {
           </form>
         </section>
 
-        {sessions.length > 0 && (
+        {sessions === null && (
           <section className="space-y-3">
             <h2 className="text-xs font-bold uppercase tracking-widest text-ink-muted">
               Your sessions
             </h2>
             <ul className="space-y-2">
-              {sessions.map((s) => (
+              {[0, 1, 2].map((i) => (
                 <li
-                  key={s.id}
-                  className="group relative flex items-center gap-3 p-4 bg-surface border border-border hover:border-brand/30 rounded-xl transition-all"
+                  key={i}
+                  className="flex items-center gap-3 p-4 bg-surface border border-border rounded-xl animate-pulse"
                   style={{ boxShadow: "var(--shadow-sm)" }}
                 >
-                  <Link
-                    href={`/session/${s.id}`}
-                    className="flex-1 min-w-0 truncate font-semibold text-ink group-hover:text-brand transition-colors"
-                  >
-                    {s.title}
-                  </Link>
-                  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <Link
-                      href={`/session/${s.id}/mix`}
-                      className="text-xs font-semibold text-teal-700 hover:text-brand underline-offset-2 hover:underline"
-                    >
-                      Mix
-                    </Link>
-                    <StatusPill status={s.status} />
-                    <DeleteButton
-                      onDelete={() => handleDelete(s.id)}
-                      label="Delete"
-                      confirmLabel="Delete?"
-                    />
-                  </div>
+                  <div className="flex-1 h-4 bg-cream-200 rounded" />
+                  <div className="w-12 h-5 bg-cream-200 rounded-full" />
                 </li>
               ))}
             </ul>
           </section>
         )}
 
-        {sessions.length === 0 && (
+        {sessions && sessions.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+              Your sessions
+            </h2>
+            <ul className="space-y-2">
+              {sessions.map((s) => {
+                // An ended session has no live room to rejoin — point the main
+                // link at the Mix page (recordings + composite) instead of the
+                // room, which would just reject the join.
+                const ended = s.status === "ended";
+                const primaryHref = ended
+                  ? `/session/${s.id}/mix`
+                  : `/session/${s.id}`;
+                return (
+                  <li
+                    key={s.id}
+                    className={`group relative flex items-center gap-3 p-4 bg-surface border rounded-xl transition-all ${
+                      ended
+                        ? "border-border/60 opacity-80"
+                        : "border-border hover:border-brand/30"
+                    }`}
+                    style={{ boxShadow: "var(--shadow-sm)" }}
+                  >
+                    <Link
+                      href={primaryHref}
+                      className="flex-1 min-w-0 truncate font-semibold text-ink group-hover:text-brand transition-colors"
+                    >
+                      {s.title}
+                    </Link>
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      {!ended && (
+                        <Link
+                          href={`/session/${s.id}/mix`}
+                          className="text-xs font-semibold text-teal-700 hover:text-brand underline-offset-2 hover:underline"
+                        >
+                          Mix
+                        </Link>
+                      )}
+                      <StatusPill status={s.status} />
+                      <DeleteButton
+                        onDelete={() => handleDelete(s.id)}
+                        label="Delete"
+                        confirmLabel="Delete?"
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        {sessions && sessions.length === 0 && (
           <div className="rounded-2xl border border-dashed border-border-strong/40 bg-cream-sunken/60 p-6 text-center">
             <p className="text-sm text-ink-muted">
               No sessions yet. Give your first episode a title above to start.
