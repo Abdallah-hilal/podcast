@@ -13,6 +13,8 @@ import { TusUploader } from "./tusUploader";
 
 const THROTTLE_BPS = 2_000_000; // 2 Mbps during live call
 
+export type TokenGetter = () => Promise<string>;
+
 export class RecordingPipeline {
   private _state: PipelineState = "idle";
   private recorder: MediaRecorder | null = null;
@@ -29,7 +31,12 @@ export class RecordingPipeline {
   private bytesRecorded = 0;
   private bytesUploaded = 0;
   private chunksRecorded = 0;
-  private token: string = "";
+  // Called before every backend API call and every TUS upload to pull a
+  // fresh Supabase JWT. Avoids baking a token at start() that would expire
+  // after an hour mid-session and silently 401 every upload.
+  private getToken: TokenGetter = async () => {
+    throw new Error("Pipeline not started");
+  };
   private onStateChange?: (state: PipelineState) => void;
 
   get state(): PipelineState {
@@ -51,10 +58,14 @@ export class RecordingPipeline {
    * recording honors the user's device choice and doesn't open a second
    * getUserMedia session. For local-only mode, the caller opens its own via
    * `mediaRecorder.getRecordingStream(opts)` and passes `ownsStream: true`.
+   *
+   * `getToken` is called before every API/upload request; it should pull a
+   * fresh Supabase access token (Supabase SDK refreshes internally), so a
+   * session longer than the JWT lifetime (1h default) doesn't 401 mid-way.
    */
   async start(
     sessionId: string,
-    authToken: string,
+    getToken: TokenGetter,
     stream: MediaStream,
     opts?: { ownsStream?: boolean }
   ): Promise<void> {
@@ -63,7 +74,7 @@ export class RecordingPipeline {
       throw new Error("Recording stream has no tracks — turn on mic or camera first");
     }
 
-    this.token = authToken;
+    this.getToken = getToken;
     this.stream = stream;
     this.ownsStream = opts?.ownsStream ?? false;
 
@@ -72,7 +83,8 @@ export class RecordingPipeline {
     if (!mimeType) throw new Error("No supported recording MIME type found");
 
     const videoSettings = settings.video;
-    const recording = await api.startRecording(authToken, sessionId, {
+    const token = await getToken();
+    const recording = await api.startRecording(token, sessionId, {
       mime_type: mimeType,
       actual_width: videoSettings?.width ?? 0,
       actual_height: videoSettings?.height ?? 0,
@@ -117,25 +129,27 @@ export class RecordingPipeline {
 
     const blob = await this.batchManager.assembleBatch(batch, this.store);
 
-    // Register batch with backend
-    const registered = await api.registerBatch(this.token, this.recordingId, {
+    // Fresh token at every stage — register, upload, complete — so an
+    // expiring JWT doesn't 401 one call out of three.
+    let token = await this.getToken();
+    const registered = await api.registerBatch(token, this.recordingId, {
       sequence_number: batch.sequenceNumber,
       byte_size: batch.totalSize,
     });
 
-    // Upload directly to Supabase via TUS (user JWT auth)
+    token = await this.getToken();
     await this.uploader.upload({
       batchId: registered.batch_id,
       blob,
       storagePath: registered.storage_path,
-      authToken: this.token,
+      authToken: token,
       onProgress: (uploaded) => {
         this.bytesUploaded += uploaded;
       },
     });
 
-    // Mark complete
-    await api.completeBatch(this.token, this.recordingId, registered.batch_id);
+    token = await this.getToken();
+    await api.completeBatch(token, this.recordingId, registered.batch_id);
     this.batchManager.markUploaded(batch.id);
   }
 
@@ -165,7 +179,8 @@ export class RecordingPipeline {
     }
 
     // Finalize
-    await api.finalizeRecording(this.token, this.recordingId);
+    const finalToken = await this.getToken();
+    await api.finalizeRecording(finalToken, this.recordingId);
 
     // Only stop tracks the pipeline opened itself. A LiveKit-sourced stream
     // stays live — the video call is still in progress.

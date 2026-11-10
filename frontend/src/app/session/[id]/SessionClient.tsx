@@ -32,7 +32,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   const [joinInfo, setJoinInfo] = useState<JoinSessionResponse | null>(null);
   const [localOnly, setLocalOnly] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
+  const [authed, setAuthed] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [error, setError] = useState("");
   const [prejoined, setPrejoined] = useState(false);
@@ -76,7 +76,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         router.push(loginUrlWithNext());
         return;
       }
-      setToken(session.access_token);
+      setAuthed(true);
 
       try {
         const sessionData = await api.getSession(session.access_token, sessionId);
@@ -103,21 +103,30 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, router, supabase]);
 
+  const getFreshToken = useCallback(async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) throw new Error("Session expired, please sign in again");
+    return session.access_token;
+  }, [supabase]);
+
   const handleStartRecording = useCallback(
     async (stream: MediaStream, ownsStream: boolean) => {
-      if (!token) return;
+      if (!authed) return;
       try {
-        await pipelineRef.current.start(sessionId, token, stream, { ownsStream });
+        await pipelineRef.current.start(sessionId, getFreshToken, stream, {
+          ownsStream,
+        });
       } catch (err) {
         console.error("Failed to start recording:", err);
         setError(err instanceof Error ? err.message : "Recording failed");
-        // If we opened the stream ourselves and start failed, tear it down.
         if (ownsStream) {
           stream.getTracks().forEach((t) => t.stop());
         }
       }
     },
-    [sessionId, token]
+    [sessionId, authed, getFreshToken]
   );
 
   const handleStopRecording = useCallback(async () => {
