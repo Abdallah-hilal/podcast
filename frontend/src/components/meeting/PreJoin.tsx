@@ -127,11 +127,11 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
           <Logo size="md" linkTo="" />
         </div>
 
-        <div className="text-center space-y-1">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-teal-300">
+        <div className="text-center space-y-1 appear">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-300">
             {roleLabel}
           </p>
-          <h1 className="text-2xl md:text-3xl font-black text-white truncate">
+          <h1 className="text-2xl md:text-3xl font-black text-white truncate tracking-tight">
             {title}
           </h1>
         </div>
@@ -170,10 +170,11 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             <button
               onClick={() => setMicOn((x) => !x)}
               aria-label={micOn ? "Turn off microphone" : "Turn on microphone"}
+              aria-pressed={micOn}
               className={[
-                "w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-lg",
+                "press w-11 h-11 rounded-full flex items-center justify-center shadow-lg",
                 micOn
-                  ? "bg-white/15 hover:bg-white/25 text-white"
+                  ? "bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/10"
                   : "bg-coral-600 hover:bg-coral-700 text-white",
               ].join(" ")}
             >
@@ -182,10 +183,11 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             <button
               onClick={() => setCamOn((x) => !x)}
               aria-label={camOn ? "Turn off camera" : "Turn on camera"}
+              aria-pressed={camOn}
               className={[
-                "w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-lg",
+                "press w-11 h-11 rounded-full flex items-center justify-center shadow-lg",
                 camOn
-                  ? "bg-white/15 hover:bg-white/25 text-white"
+                  ? "bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/10"
                   : "bg-coral-600 hover:bg-coral-700 text-white",
               ].join(" ")}
             >
@@ -255,7 +257,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         <button
           onClick={handleJoin}
           disabled={joining || disabled || (!ready && !err)}
-          className="w-full py-3.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-black text-white text-base transition-all shadow-lg hover:shadow-xl"
+          className="press w-full py-3.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-coral-600 rounded-xl font-black text-white text-base tracking-tight shadow-lg hover:shadow-xl"
         >
           {joining ? "Joining…" : disabled ? (disabledReason ?? "Unavailable") : "Join meeting →"}
         </button>

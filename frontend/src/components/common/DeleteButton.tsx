@@ -69,7 +69,8 @@ export function DeleteButton({
       type="button"
       onClick={handleClick}
       disabled={busy}
-      className={`rounded transition-colors ${sizeClass} ${stateClass} ${className}`}
+      aria-pressed={armed}
+      className={`press-sm rounded ${sizeClass} ${stateClass} ${className}`}
     >
       {busy ? "Deleting…" : armed ? confirmLabel : label}
     </button>

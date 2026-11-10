@@ -173,7 +173,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           <p className="text-coral-700 font-bold text-lg">{error}</p>
           <button
             onClick={() => router.push("/")}
-            className="inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl font-bold transition-colors shadow-md"
+            className="press inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl font-bold shadow-md"
           >
             Back to Home
           </button>
@@ -398,23 +398,23 @@ function LocalControlBar({
   };
 
   return (
-    <div className="flex items-center justify-center gap-3 py-5 px-4 bg-black/40 backdrop-blur-xl border-t border-white/10">
+    <div className="flex items-center justify-center gap-3 py-5 px-4 material-dark border-t border-white/5">
       {isRecording ? (
         <button
           onClick={onStop}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg"
+          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg"
         >
           <StopIcon className="w-3 h-3" />
-          <span className="text-sm tabular-nums">Stop · {timeStr}</span>
+          <span className="text-sm tabular-nums tracking-tight">Stop · {timeStr}</span>
         </button>
       ) : (
         <button
           onClick={handleRecord}
           disabled={isBusy}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-full text-white font-bold ring-1 ring-white/10"
+          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:hover:bg-white/10 rounded-full text-white font-bold ring-1 ring-white/10"
         >
           <RecordIcon className="w-3 h-3 text-coral-500" />
-          <span className="text-sm">
+          <span className="text-sm tracking-tight">
             {isBusy
               ? recState === "uploading"
                 ? "Uploading…"
@@ -428,7 +428,7 @@ function LocalControlBar({
       <button
         onClick={onLeave}
         aria-label="Leave"
-        className="w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
+        className="press w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
       >
         <PhoneOffIcon />
       </button>

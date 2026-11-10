@@ -52,7 +52,10 @@ export function ControlBar({
   const isBusy = recState === "stopping" || recState === "uploading";
 
   return (
-    <div className="flex items-center justify-center gap-2 md:gap-3 py-5 px-4 bg-black/40 backdrop-blur-xl border-t border-white/10">
+    // material-dark: translucent chrome floating over the VideoGrid instead
+    // of a solid bar that eats a fixed strip of the canvas. The inset top
+    // highlight reads as light catching the glass.
+    <div className="relative flex items-center justify-center gap-2 md:gap-3 py-5 px-4 material-dark border-t border-white/5">
       <IconToggle
         on={mic.enabled}
         onClick={() => mic.toggle()}
@@ -70,25 +73,27 @@ export function ControlBar({
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}
       />
 
-      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" />
+      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 
       {isRecording ? (
         <button
           onClick={onStop}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold transition-all shadow-lg hover:shadow-xl"
+          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg hover:shadow-xl"
         >
           <StopIcon className="w-3 h-3" />
-          <span className="text-sm tabular-nums">Stop · {fmt(elapsedMs)}</span>
+          <span className="text-sm tabular-nums tracking-tight">
+            Stop · {fmt(elapsedMs)}
+          </span>
         </button>
       ) : (
         <button
           onClick={onRecord}
           disabled={isBusy || !canRecord}
           title={!canRecord ? "Turn on mic or camera first" : undefined}
-          className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-full text-white font-bold transition-all ring-1 ring-white/10"
+          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10 rounded-full text-white font-bold ring-1 ring-white/10"
         >
           <RecordIcon className="w-3 h-3 text-coral-500" />
-          <span className="text-sm">
+          <span className="text-sm tracking-tight">
             {isBusy
               ? recState === "uploading"
                 ? "Uploading…"
@@ -100,12 +105,12 @@ export function ControlBar({
         </button>
       )}
 
-      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" />
+      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 
       <button
         onClick={onLeave}
         aria-label="Leave meeting"
-        className="w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center transition-all shadow-lg"
+        className="press w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
       >
         <PhoneOffIcon />
       </button>
@@ -132,10 +137,11 @@ function IconToggle({
     <button
       onClick={onClick}
       aria-label={label}
+      aria-pressed={on}
       disabled={disabled}
       title={disabled ? "Locked while recording" : label}
       className={[
-        "w-11 h-11 rounded-full flex items-center justify-center transition-all",
+        "press w-11 h-11 rounded-full flex items-center justify-center",
         disabled ? "cursor-not-allowed opacity-50" : "",
         on
           ? "bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10"

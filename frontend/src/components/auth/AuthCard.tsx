@@ -174,7 +174,7 @@ export function AuthCard({ initialMode }: Props) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-60 text-white rounded-xl font-bold transition-colors shadow-md hover:shadow-lg"
+              className="press w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-60 disabled:hover:bg-brand text-white rounded-xl font-bold shadow-md hover:shadow-lg"
             >
               {loading
                 ? mode === "signin"
@@ -208,8 +208,9 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={[
-        "flex-1 py-2 text-sm font-bold rounded-lg transition-all",
+        "press-sm flex-1 py-2 text-sm font-bold rounded-lg",
         active
           ? "bg-surface text-brand shadow-sm"
           : "text-ink-muted hover:text-ink",

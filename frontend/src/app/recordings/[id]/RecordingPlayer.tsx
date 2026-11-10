@@ -148,17 +148,17 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
           <Logo size="md" />
           <Link
             href="/recordings"
-            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+            className="press text-sm font-medium text-ink-muted hover:text-brand"
           >
             ← Recordings
           </Link>
         </header>
 
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+        <div className="appear">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-ink-muted">
             Recording
           </p>
-          <h1 className="text-2xl sm:text-3xl font-black truncate">
+          <h1 className="text-[clamp(1.5rem,4.5vw,2.25rem)] font-black truncate">
             {title || "Untitled"}
           </h1>
         </div>
@@ -190,7 +190,7 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
               <a
                 href={url}
                 download={`recording-${recordingId}.webm`}
-                className="inline-block px-5 py-2.5 bg-coral-600 hover:bg-coral-700 text-white rounded-xl font-bold transition-colors shadow-md hover:shadow-lg"
+                className="press inline-block px-5 py-2.5 bg-coral-600 hover:bg-coral-700 text-white rounded-xl font-bold shadow-md hover:shadow-lg"
               >
                 Download .webm
               </a>
@@ -265,7 +265,7 @@ function TranscriptSection({
           <button
             onClick={onRetry}
             disabled={retrying}
-            className="px-4 py-1.5 bg-coral-600 hover:bg-coral-700 text-white disabled:opacity-50 rounded-lg font-bold text-sm"
+            className="press px-4 py-1.5 bg-coral-600 hover:bg-coral-700 text-white disabled:opacity-50 disabled:hover:bg-coral-600 rounded-lg font-bold text-sm"
           >
             {retrying ? "Retrying…" : "Retry transcription"}
           </button>
@@ -311,14 +311,14 @@ function TranscriptSection({
             <button
               onClick={onRetry}
               disabled={retrying}
-              className="px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
+              className="press-sm px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
             >
               {retrying ? "Re-transcribing…" : "Re-transcribe"}
             </button>
             {text && (
               <button
                 onClick={() => navigator.clipboard.writeText(text)}
-                className="px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
+                className="press-sm px-3 py-1 text-xs font-semibold text-ink-muted hover:text-brand underline-offset-2 hover:underline"
               >
                 Copy transcript
               </button>

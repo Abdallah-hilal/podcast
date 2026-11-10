@@ -14,7 +14,7 @@ function fmt(ms: number): string {
 
 export function RecBadge({ elapsedMs }: { elapsedMs: number }) {
   return (
-    <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-coral-600 text-white px-3 py-1.5 rounded-full text-xs md:text-sm font-bold shadow-xl">
+    <div className="appear absolute top-4 left-4 z-20 flex items-center gap-2 bg-coral-600/95 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs md:text-sm font-bold shadow-xl ring-1 ring-white/10">
       <span className="relative flex w-2.5 h-2.5">
         <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
         <span className="relative rounded-full bg-white w-2.5 h-2.5" />
@@ -74,13 +74,14 @@ export function UploadBadge({
 
   return (
     <div
-      className={`absolute bottom-4 right-4 z-20 flex items-center gap-2 backdrop-blur-md border px-3 py-1.5 rounded-full text-xs font-medium shadow-lg ${color}`}
+      className={`appear absolute bottom-4 right-4 z-20 flex items-center gap-2 backdrop-blur-md border px-3 py-1.5 rounded-full text-xs font-medium shadow-lg tracking-tight ${color}`}
       title={isError && lastError ? lastError : undefined}
+      role={isError ? "alert" : "status"}
     >
       {!isError && state !== "complete" && (
         <span className="w-2 h-2 rounded-full bg-coral-500 animate-pulse" />
       )}
-      {isError && <span className="text-white font-bold">⚠</span>}
+      {isError && <span className="text-white font-bold" aria-hidden>⚠</span>}
       <span className="tabular-nums">{msg}</span>
     </div>
   );

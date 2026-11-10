@@ -37,8 +37,9 @@ export function InviteButton({ sessionId }: { sessionId: string }) {
   return (
     <button
       onClick={copy}
+      aria-live="polite"
       className={[
-        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all",
+        "press flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold",
         copied
           ? "bg-teal-500/20 text-teal-100 ring-1 ring-teal-300/40"
           : "bg-coral-600 hover:bg-coral-700 text-white shadow-md hover:shadow-lg",

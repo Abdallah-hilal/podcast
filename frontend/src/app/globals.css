@@ -63,6 +63,18 @@
   --shadow-sm:    0 1px 2px rgba(28, 22, 19, .06);
   --shadow-md:    0 2px 4px rgba(28, 22, 19, .08), 0 8px 24px rgba(28, 22, 19, .08);
   --shadow-photo: 0 2px 4px rgba(28, 22, 19, .08), 0 18px 40px rgba(28, 22, 19, .16);
+
+  /* Motion tokens.
+   * `ease-out-apple` is the cubic-bezier that lands close to a critically-damped
+   * spring (response ~0.3s, no overshoot) — our default for everything not
+   * driven by a flick/throw. `dur-press` is the ~100ms window where touch-down
+   * feedback must arrive to still feel instant (anything longer reads as lag).
+   */
+  --ease-out-apple:   cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-gentle:  cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press:        100ms;
+  --dur-base:         220ms;
+  --dur-slow:         420ms;
 }
 
 /*
@@ -104,6 +116,32 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Variable-font optical sizing kicks tracking/weight adjustments in at
+   * display sizes. Body copy keeps near-zero letter-spacing; the display
+   * utilities below tighten tracking on their own. */
+  font-optical-sizing: auto;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+/* Display type — tightened tracking + snug leading at larger sizes.
+ * Applied to h1/h2 by default; `.display` is the opt-in for a hero-weight
+ * heading that isn't the document's h1. */
+h1, h2, .display {
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-optical-sizing: auto;
+}
+h3 {
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+}
+
+/* Honor user-chosen text size — spacing inside typography wrappers scales
+ * with em so a larger root doesn't spill the layout. */
+@supports (text-size-adjust: none) {
+  html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }
 }
 
 /* Marker highlight on a span — <span class="marker">word</span> */
@@ -131,4 +169,126 @@ body {
   background: var(--color-ink-muted);
   background-clip: padding-box;
   border: 2px solid transparent;
+}
+
+/* ---------------------------------------------------------------- *
+ * Interaction & material utilities (Apple-style motion language)   *
+ * ---------------------------------------------------------------- */
+
+/* `.press` gives any button the 1:1 touch-down scale feedback Apple ships:
+ * the state change fires on pointer-down, snaps back on release, and never
+ * blocks the click. Pair it with hover/focus/disabled styles as usual.
+ * ~100ms transform keeps the response below the lag-perception threshold. */
+.press {
+  transition:
+    transform var(--dur-press) var(--ease-out-apple),
+    background-color var(--dur-base) var(--ease-out-apple),
+    box-shadow var(--dur-base) var(--ease-out-apple),
+    opacity var(--dur-base) var(--ease-out-apple),
+    border-color var(--dur-base) var(--ease-out-apple),
+    color var(--dur-base) var(--ease-out-apple);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.press-sm:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* Focus ring — visible only for keyboard, never on mouse-down. */
+.press:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Translucent material layer. Use for floating chrome (control bar, toolbars,
+ * sheets) so the content underneath stays visible through blurred glass
+ * instead of being hidden by an opaque strip.
+ *
+ * NOTE: the backdrop-filter lives inside @supports so lightningcss doesn't
+ * collapse it away in favor of a `-webkit-backdrop-filter`-only fallback
+ * (which modern Chrome ignores unless aliased, defeating the blur). */
+.material-dark {
+  background: rgba(14, 60, 72, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.material-light {
+  background: rgba(251, 247, 243, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .material-dark {
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+  }
+  .material-light {
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+  }
+}
+
+/* Soft scroll edge — fade a few px of content near floating chrome instead
+ * of drawing a hard divider under it. Apply to the scroll container, the
+ * side where the chrome sits. */
+.scroll-edge-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 28px);
+  mask-image: linear-gradient(to bottom, transparent 0, black 28px);
+}
+.scroll-edge-bottom {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, black 28px);
+  mask-image: linear-gradient(to top, transparent 0, black 28px);
+}
+
+/* Appear — tiny fade-in-up for content arriving after a data fetch, so the
+ * UI "materializes" rather than snapping in. Opt-in via the class. */
+@keyframes appear {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0,  0); }
+}
+.appear {
+  animation: appear var(--dur-slow) var(--ease-out-apple) both;
+}
+
+/* ---------------------------------------------------------------- *
+ * Accessibility: respect the user's motion/contrast/transparency.  *
+ * ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Kill every transition and animation globally, but keep opacity fades
+   * — those aid comprehension and don't trigger vestibular issues. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .press:active:not(:disabled),
+  .press-sm:active:not(:disabled) {
+    transform: none !important;
+  }
+  .appear { animation: none; opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .material-dark {
+    background: var(--color-canvas-deep);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .material-light {
+    background: var(--color-bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-border: var(--color-cream-400);
+    --color-ink-muted: var(--color-cream-800);
+  }
+  .material-dark { background: var(--color-canvas-deep); backdrop-filter: none; }
+  .material-light { background: var(--color-bg); backdrop-filter: none; }
 }

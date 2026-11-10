@@ -121,15 +121,15 @@ export default function RecordingsPage() {
           <Logo size="md" />
           <Link
             href="/"
-            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+            className="press text-sm font-medium text-ink-muted hover:text-brand"
           >
             ← Sessions
           </Link>
         </header>
 
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black">Recordings</h1>
-          <p className="text-sm text-ink-muted mt-1">
+          <h1 className="text-[clamp(1.5rem,4.5vw,2.25rem)] font-black">Recordings</h1>
+          <p className="text-sm text-ink-muted mt-1 leading-relaxed">
             One row per participant per session.
           </p>
         </div>
@@ -141,7 +141,21 @@ export default function RecordingsPage() {
         )}
 
         {rows === null && !err && (
-          <p className="text-ink-muted animate-pulse">Loading…</p>
+          <ul className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <li
+                key={i}
+                className="flex items-center gap-3 p-4 bg-surface border border-border rounded-xl animate-pulse"
+                style={{ boxShadow: "var(--shadow-sm)" }}
+              >
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-cream-200 rounded w-1/2" />
+                  <div className="h-3 bg-cream-200 rounded w-2/3" />
+                </div>
+                <div className="w-14 h-5 bg-cream-200 rounded-full" />
+              </li>
+            ))}
+          </ul>
         )}
 
         {rows && rows.length === 0 && (
@@ -205,9 +219,9 @@ export default function RecordingsPage() {
               return (
                 <li
                   key={r.id}
-                  className={`group relative flex items-center gap-3 p-4 rounded-xl border transition-all ${
+                  className={`group appear relative flex items-center gap-3 p-4 rounded-xl border transition-[border-color,box-shadow,opacity] duration-220 ease-[cubic-bezier(.22,1,.36,1)] ${
                     clickable
-                      ? "bg-surface border-border hover:border-brand/30"
+                      ? "bg-surface border-border hover:border-brand/30 hover:shadow-md"
                       : "bg-cream-sunken/60 border-border/50 opacity-70"
                   }`}
                   style={{ boxShadow: clickable ? "var(--shadow-sm)" : undefined }}
@@ -215,7 +229,7 @@ export default function RecordingsPage() {
                   {clickable ? (
                     <Link
                       href={`/recordings/${r.id}`}
-                      className="flex items-center gap-3 flex-1 min-w-0"
+                      className="press flex items-center gap-3 flex-1 min-w-0"
                     >
                       {inner}
                     </Link>

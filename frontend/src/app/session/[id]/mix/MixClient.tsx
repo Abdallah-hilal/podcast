@@ -140,17 +140,17 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
           <Logo size="md" />
           <Link
             href="/"
-            className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+            className="press text-sm font-medium text-ink-muted hover:text-brand"
           >
             ← Sessions
           </Link>
         </header>
 
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-ink-muted">
+        <div className="appear">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-ink-muted">
             Mix
           </p>
-          <h1 className="text-2xl sm:text-3xl font-black truncate">
+          <h1 className="text-[clamp(1.5rem,4.5vw,2.25rem)] font-black truncate">
             {title || "Session"}
           </h1>
         </div>
@@ -207,7 +207,7 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
               <button
                 onClick={handleRender}
                 disabled={!canRender || rendering}
-                className="px-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-bold text-white shadow-md hover:shadow-lg transition-all"
+                className="press px-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-coral-600 rounded-xl font-bold text-white shadow-md hover:shadow-lg"
               >
                 {rendering
                   ? "Queuing…"
@@ -223,7 +223,7 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
                 <a
                   href={s.download_url}
                   download={`session-${sessionId}-composite.webm`}
-                  className="px-5 py-2.5 bg-surface border border-border hover:border-brand text-brand rounded-xl font-bold text-sm transition-colors"
+                  className="press px-5 py-2.5 bg-surface border border-border hover:border-brand text-brand rounded-xl font-bold text-sm"
                 >
                   Download .webm
                 </a>

@@ -72,13 +72,13 @@ export default function HomePage() {
           <div className="flex items-center gap-3 sm:gap-5 shrink-0">
             <Link
               href="/recordings"
-              className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+              className="press text-sm font-medium text-ink-muted hover:text-brand"
             >
               Recordings
             </Link>
             <button
               onClick={handleLogout}
-              className="text-sm font-medium text-ink-muted hover:text-brand transition-colors"
+              className="press text-sm font-medium text-ink-muted hover:text-brand"
             >
               Sign out
             </button>
@@ -86,11 +86,11 @@ export default function HomePage() {
         </header>
 
         <section className="space-y-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-4xl font-black leading-tight">
+          <div className="space-y-1.5">
+            <h1 className="text-[clamp(1.75rem,5.5vw,2.75rem)] font-black">
               Record with someone<span className="text-coral-600">.</span>
             </h1>
-            <p className="text-ink-muted text-sm sm:text-base">
+            <p className="text-ink-muted text-sm sm:text-base leading-relaxed max-w-xl">
               Start a session, share the link — each side records locally at
               full quality and uploads to your own storage.
             </p>
@@ -111,7 +111,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-3 bg-coral-600 hover:bg-coral-700 disabled:opacity-60 text-white rounded-xl font-bold transition-colors shadow-md hover:shadow-lg whitespace-nowrap"
+              className="press px-6 py-3 bg-coral-600 hover:bg-coral-700 disabled:opacity-60 disabled:hover:bg-coral-600 text-white rounded-xl font-bold shadow-md hover:shadow-lg whitespace-nowrap"
             >
               {loading ? "Creating…" : "New session"}
             </button>
@@ -155,16 +155,16 @@ export default function HomePage() {
                 return (
                   <li
                     key={s.id}
-                    className={`group relative flex items-center gap-3 p-4 bg-surface border rounded-xl transition-all ${
+                    className={`group appear relative flex items-center gap-3 p-4 bg-surface border rounded-xl transition-[border-color,box-shadow,opacity] duration-220 ease-[cubic-bezier(.22,1,.36,1)] ${
                       ended
                         ? "border-border/60 opacity-80"
-                        : "border-border hover:border-brand/30"
+                        : "border-border hover:border-brand/30 hover:shadow-md"
                     }`}
                     style={{ boxShadow: "var(--shadow-sm)" }}
                   >
                     <Link
                       href={primaryHref}
-                      className="flex-1 min-w-0 truncate font-semibold text-ink group-hover:text-brand transition-colors"
+                      className="press flex-1 min-w-0 truncate font-semibold text-ink group-hover:text-brand"
                     >
                       {s.title}
                     </Link>
@@ -172,7 +172,7 @@ export default function HomePage() {
                       {!ended && (
                         <Link
                           href={`/session/${s.id}/mix`}
-                          className="text-xs font-semibold text-teal-700 hover:text-brand underline-offset-2 hover:underline"
+                          className="press text-xs font-semibold text-teal-700 hover:text-brand underline-offset-2 hover:underline"
                         >
                           Mix
                         </Link>
