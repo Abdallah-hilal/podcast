@@ -3,7 +3,6 @@ import * as api from "@/lib/api";
 import { BatchManager } from "./batchManager";
 import {
   createRecorder,
-  getRecordingStream,
   getSupportedMimeType,
   getStreamSettings,
   startRecording as startMediaRecorder,
@@ -18,6 +17,10 @@ export class RecordingPipeline {
   private _state: PipelineState = "idle";
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
+  // When the caller supplies the stream (e.g. from LiveKit), we must NOT stop
+  // its tracks on stop() — the video call still needs them. Only streams we
+  // opened ourselves via getUserMedia get torn down here.
+  private ownsStream = false;
   private store = new OPFSStore();
   private batchManager = new BatchManager();
   private uploader = new TusUploader();
@@ -42,22 +45,32 @@ export class RecordingPipeline {
     this.onStateChange = cb;
   }
 
+  /**
+   * Begin a recording against `stream`. The caller is responsible for providing
+   * the MediaStream — typically the LiveKit local-participant tracks so the
+   * recording honors the user's device choice and doesn't open a second
+   * getUserMedia session. For local-only mode, the caller opens its own via
+   * `mediaRecorder.getRecordingStream(opts)` and passes `ownsStream: true`.
+   */
   async start(
     sessionId: string,
-    authToken: string
+    authToken: string,
+    stream: MediaStream,
+    opts?: { ownsStream?: boolean }
   ): Promise<void> {
     if (this._state !== "idle") throw new Error(`Cannot start from ${this._state}`);
+    if (stream.getTracks().length === 0) {
+      throw new Error("Recording stream has no tracks — turn on mic or camera first");
+    }
 
     this.token = authToken;
+    this.stream = stream;
+    this.ownsStream = opts?.ownsStream ?? false;
 
-    // 1. Get independent recording stream
-    this.stream = await getRecordingStream();
     const settings = getStreamSettings(this.stream);
-
     const mimeType = getSupportedMimeType();
     if (!mimeType) throw new Error("No supported recording MIME type found");
 
-    // 2. Register recording with backend
     const videoSettings = settings.video;
     const recording = await api.startRecording(authToken, sessionId, {
       mime_type: mimeType,
@@ -67,10 +80,8 @@ export class RecordingPipeline {
     });
     this.recordingId = recording.recording_id;
 
-    // 3. Init OPFS
     await this.store.init(this.recordingId);
 
-    // 4. Create MediaRecorder
     this.uploader.setThrottle(THROTTLE_BPS);
     this.setState("recording");
     this.startTime = Date.now();
@@ -156,8 +167,12 @@ export class RecordingPipeline {
     // Finalize
     await api.finalizeRecording(this.token, this.recordingId);
 
-    // Stop media tracks
-    this.stream?.getTracks().forEach((t) => t.stop());
+    // Only stop tracks the pipeline opened itself. A LiveKit-sourced stream
+    // stays live — the video call is still in progress.
+    if (this.ownsStream) {
+      this.stream?.getTracks().forEach((t) => t.stop());
+    }
+    this.stream = null;
 
     this.setState("complete");
   }

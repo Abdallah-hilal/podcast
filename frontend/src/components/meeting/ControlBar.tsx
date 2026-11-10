@@ -29,9 +29,22 @@ interface Props {
   onRecord: () => void;
   onStop: () => void;
   onLeave: () => void;
+  /** Disables the Record button when the recording source isn't ready. */
+  canRecord?: boolean;
+  /** Locks the mic/camera toggles while a recording is live — toggling off
+   *  mid-recording ends the underlying track and silently cuts the file. */
+  lockDeviceToggles?: boolean;
 }
 
-export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: Props) {
+export function ControlBar({
+  recState,
+  elapsedMs,
+  onRecord,
+  onStop,
+  onLeave,
+  canRecord = true,
+  lockDeviceToggles = false,
+}: Props) {
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
 
@@ -43,6 +56,7 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
       <IconToggle
         on={mic.enabled}
         onClick={() => mic.toggle()}
+        disabled={lockDeviceToggles}
         onIcon={<MicIcon />}
         offIcon={<MicOffIcon />}
         label={mic.enabled ? "Mute microphone" : "Unmute microphone"}
@@ -50,6 +64,7 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
       <IconToggle
         on={cam.enabled}
         onClick={() => cam.toggle()}
+        disabled={lockDeviceToggles}
         onIcon={<CamIcon />}
         offIcon={<CamOffIcon />}
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}
@@ -68,7 +83,8 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
       ) : (
         <button
           onClick={onRecord}
-          disabled={isBusy}
+          disabled={isBusy || !canRecord}
+          title={!canRecord ? "Turn on mic or camera first" : undefined}
           className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-full text-white font-bold transition-all ring-1 ring-white/10"
         >
           <RecordIcon className="w-3 h-3 text-coral-500" />
@@ -100,12 +116,14 @@ export function ControlBar({ recState, elapsedMs, onRecord, onStop, onLeave }: P
 function IconToggle({
   on,
   onClick,
+  disabled,
   onIcon,
   offIcon,
   label,
 }: {
   on: boolean;
   onClick: () => void;
+  disabled?: boolean;
   onIcon: React.ReactNode;
   offIcon: React.ReactNode;
   label: string;
@@ -114,8 +132,11 @@ function IconToggle({
     <button
       onClick={onClick}
       aria-label={label}
+      disabled={disabled}
+      title={disabled ? "Locked while recording" : label}
       className={[
         "w-11 h-11 rounded-full flex items-center justify-center transition-all",
+        disabled ? "cursor-not-allowed opacity-50" : "",
         on
           ? "bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10"
           : "bg-coral-600 hover:bg-coral-700 text-white",

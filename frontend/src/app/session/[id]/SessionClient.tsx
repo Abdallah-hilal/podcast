@@ -16,7 +16,9 @@ import {
   StopIcon,
   PhoneOffIcon,
 } from "@/components/meeting/icons";
+import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
+import { getRecordingStream } from "@/lib/recording/mediaRecorder";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type {
   PipelineState,
@@ -101,15 +103,22 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, router, supabase]);
 
-  const handleStartRecording = useCallback(async () => {
-    if (!token) return;
-    try {
-      await pipelineRef.current.start(sessionId, token);
-    } catch (err) {
-      console.error("Failed to start recording:", err);
-      setError(err instanceof Error ? err.message : "Recording failed");
-    }
-  }, [sessionId, token]);
+  const handleStartRecording = useCallback(
+    async (stream: MediaStream, ownsStream: boolean) => {
+      if (!token) return;
+      try {
+        await pipelineRef.current.start(sessionId, token, stream, { ownsStream });
+      } catch (err) {
+        console.error("Failed to start recording:", err);
+        setError(err instanceof Error ? err.message : "Recording failed");
+        // If we opened the stream ourselves and start failed, tear it down.
+        if (ownsStream) {
+          stream.getTracks().forEach((t) => t.stop());
+        }
+      }
+    },
+    [sessionId, token]
+  );
 
   const handleStopRecording = useCallback(async () => {
     try {
@@ -210,7 +219,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         <LocalControlBar
           recState={pipelineState}
           elapsedMs={progress.elapsedMs}
-          onRecord={handleStartRecording}
+          preChoice={preChoice}
+          onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
         />
@@ -260,10 +270,10 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             bytesUploaded={progress.bytesUploaded}
           />
         </div>
-        <ControlBar
+        <RoomRecordingControls
           recState={pipelineState}
           elapsedMs={progress.elapsedMs}
-          onRecord={handleStartRecording}
+          onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
         />
@@ -273,17 +283,60 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   );
 }
 
-// Minimal control bar for local-only mode (no LiveKit context, so no mic/cam toggles).
-function LocalControlBar({
+/**
+ * Wrapper that lives INSIDE LiveKitRoom so it can read the local participant's
+ * tracks via `useRecordingStream()` and feed them into the recording pipeline.
+ * This is what makes the recording honor the user's PreJoin device choice and
+ * share the same mic/camera the video call is using (no second getUserMedia).
+ */
+function RoomRecordingControls({
   recState,
   elapsedMs,
-  onRecord,
+  onStartRecording,
   onStop,
   onLeave,
 }: {
   recState: PipelineState;
   elapsedMs: number;
-  onRecord: () => void;
+  onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
+  onStop: () => void;
+  onLeave: () => void;
+}) {
+  const { buildStream, isReady } = useRecordingStream();
+  const handleRecord = useCallback(() => {
+    const stream = buildStream();
+    void onStartRecording(stream, false);
+  }, [buildStream, onStartRecording]);
+
+  return (
+    <ControlBar
+      recState={recState}
+      elapsedMs={elapsedMs}
+      onRecord={handleRecord}
+      onStop={onStop}
+      onLeave={onLeave}
+      canRecord={isReady}
+      lockDeviceToggles={recState === "recording"}
+    />
+  );
+}
+
+// Minimal control bar for local-only mode (no LiveKit context, so no mic/cam
+// toggles). This bar OWNS its stream: it opens one via getRecordingStream()
+// using the device the user picked in PreJoin, hands it to the pipeline, and
+// lets the pipeline stop its tracks on recording end.
+function LocalControlBar({
+  recState,
+  elapsedMs,
+  preChoice,
+  onStartRecording,
+  onStop,
+  onLeave,
+}: {
+  recState: PipelineState;
+  elapsedMs: number;
+  preChoice: PreJoinChoice | null;
+  onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
   onStop: () => void;
   onLeave: () => void;
 }) {
@@ -294,6 +347,20 @@ function LocalControlBar({
   const m = Math.floor(s / 60);
   const r = s % 60;
   const timeStr = `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+
+  const handleRecord = async () => {
+    try {
+      const stream = await getRecordingStream({
+        cameraId: preChoice?.cameraId,
+        micId: preChoice?.micId,
+        camOn: preChoice?.camOn ?? true,
+        micOn: preChoice?.micOn ?? true,
+      });
+      await onStartRecording(stream, true);
+    } catch (err) {
+      console.error("Local recording start failed:", err);
+    }
+  };
 
   return (
     <div className="flex items-center justify-center gap-3 py-5 px-4 bg-black/40 backdrop-blur-xl border-t border-white/10">
@@ -307,7 +374,7 @@ function LocalControlBar({
         </button>
       ) : (
         <button
-          onClick={onRecord}
+          onClick={handleRecord}
           disabled={isBusy}
           className="flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-full text-white font-bold ring-1 ring-white/10"
         >

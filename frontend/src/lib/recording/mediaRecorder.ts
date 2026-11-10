@@ -19,18 +19,49 @@ export interface RecorderCallbacks {
   onStop: () => void;
 }
 
-export async function getRecordingStream(): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia({
-    video: {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30 },
-    },
-    audio: {
-      sampleRate: 48000,
-      channelCount: 1,
-    },
-  });
+export interface RecordingStreamOptions {
+  cameraId?: string;
+  micId?: string;
+  /** Default: true. When false, no video track is requested. */
+  camOn?: boolean;
+  /** Default: true. When false, no audio track is requested. */
+  micOn?: boolean;
+}
+
+/**
+ * Open a MediaStream for recording. Used only by local-only mode (no live
+ * call). In LiveKit mode the recording reuses the LiveKit tracks instead —
+ * see `useRecordingStream()` — so the user's PreJoin device choice applies
+ * to both the call and the recording with a single getUserMedia session.
+ */
+export async function getRecordingStream(
+  opts: RecordingStreamOptions = {}
+): Promise<MediaStream> {
+  const { cameraId, micId, camOn = true, micOn = true } = opts;
+
+  if (!camOn && !micOn) {
+    throw new Error("Cannot record with both camera and microphone off");
+  }
+
+  const constraints: MediaStreamConstraints = {
+    video: camOn
+      ? {
+          deviceId: cameraId ? { exact: cameraId } : undefined,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        }
+      : false,
+    audio: micOn
+      ? {
+          deviceId: micId ? { exact: micId } : undefined,
+          sampleRate: 48000,
+          channelCount: 1,
+        }
+      : false,
+  };
+
+  return navigator.mediaDevices.getUserMedia(constraints);
 }
 
 export function getStreamSettings(stream: MediaStream) {
