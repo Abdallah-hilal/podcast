@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { createClient } from "@/lib/supabase/client";
@@ -18,13 +18,21 @@ import {
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
-import { getRecordingStream } from "@/lib/recording/mediaRecorder";
+import {
+  getRecordingStream,
+  checkRecordingSupport,
+  type RecordingSupport,
+} from "@/lib/recording/mediaRecorder";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type {
   PipelineState,
   PipelineProgress,
   JoinSessionResponse,
 } from "@/types";
+
+const SUBSCRIBE_NOOP = () => () => {};
+const getRecordingSupportClient = (): RecordingSupport => checkRecordingSupport();
+const getRecordingSupportServer = (): null => null;
 
 export default function SessionClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -37,6 +45,16 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState("");
   const [prejoined, setPrejoined] = useState(false);
   const [preChoice, setPreChoice] = useState<PreJoinChoice | null>(null);
+  // Probe MediaRecorder on client mount so the Join button can say "sorry,
+  // your browser can't record" BEFORE the user tries. `useSyncExternalStore`
+  // keeps SSR rendering with `null` (server snapshot) and the client first
+  // paint rendering with the actual result — no setState-in-effect hazard,
+  // no hydration mismatch.
+  const support = useSyncExternalStore<RecordingSupport | null>(
+    SUBSCRIBE_NOOP,
+    getRecordingSupportClient,
+    getRecordingSupportServer,
+  );
 
   const pipelineRef = useRef<RecordingPipeline>(new RecordingPipeline());
   const [pipelineState, setPipelineState] = useState<PipelineState>("idle");
@@ -166,6 +184,26 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     router.push("/");
   }, [router]);
 
+  // Warn the user if they try to close the tab while the pipeline hasn't
+  // settled — OPFS still has the chunks, but closing mid-upload means the
+  // final file never finalizes until they revisit (and we don't have a
+  // "resume" UI yet). beforeunload only shows the browser's generic prompt;
+  // the message string is ignored by modern browsers but setting returnValue
+  // is what triggers the dialog.
+  useEffect(() => {
+    const dangerous =
+      pipelineState === "recording" ||
+      pipelineState === "stopping" ||
+      pipelineState === "uploading";
+    if (!dangerous) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [pipelineState]);
+
   if (error) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center p-6">
@@ -191,6 +229,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   }
 
   if (!prejoined) {
+    const unsupported = support && !support.supported;
     return (
       <PreJoin
         title={sessionTitle || "Meeting"}
@@ -199,6 +238,11 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           setPreChoice(choice);
           setPrejoined(true);
         }}
+        disabled={!!unsupported}
+        disabledReason={unsupported ? support?.message : undefined}
+        supportWarning={
+          support && support.quality === "limited" ? support.message ?? null : null
+        }
       />
     );
   }

@@ -7,13 +7,43 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.ratelimit import rate_limit_middleware
 from app.routers import recordings, sessions
 from app.services import livekit
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Sentry — gated on SENTRY_DSN. When the env var is empty we skip init
+# entirely; the SDK then has no handler installed and `capture_exception`
+# calls become no-ops, so leaving it off in dev costs nothing.
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.sentry_environment,
+            # Errors only — perf traces inflate the event bill and we have no
+            # tracing UI set up yet. Flip on when we need it.
+            traces_sample_rate=0.0,
+            # Don't send request bodies / query params / cookies — they can
+            # carry JWTs and user ids we treat as PII.
+            send_default_pii=False,
+            integrations=[FastApiIntegration(), StarletteIntegration()],
+        )
+        logger.info("Sentry initialized (env=%s)", settings.sentry_environment)
+    except Exception as e:  # pragma: no cover
+        # A bad DSN or a packaging mismatch shouldn't take down the API.
+        logger.warning("Sentry init failed, continuing without it: %s", e)
+
 app = FastAPI(title="Podcast Studio API", version="0.1.0")
+
+# Per-IP sliding-window rate limiter. Keep ahead of every other middleware
+# so an abusive client doesn't get past the budget by cooking a CORS probe.
+app.middleware("http")(rate_limit_middleware)
 
 
 @app.exception_handler(Exception)

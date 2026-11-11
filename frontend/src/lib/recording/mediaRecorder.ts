@@ -4,13 +4,67 @@ const PREFERRED_MIME_TYPES = [
   "video/webm;codecs=vp9",
   "video/webm;codecs=vp8",
   "video/webm",
+  // Safari emits fragmented MP4. The worker's byte-concat was designed for
+  // WebM clusters; fMP4 fragments can also concatenate into a playable file
+  // on recent builds, but it's untested here — hence the "limited" warning
+  // we surface when this branch is picked.
+  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+  "video/mp4",
 ];
 
 export function getSupportedMimeType(): string | null {
+  if (typeof MediaRecorder === "undefined") return null;
   for (const mime of PREFERRED_MIME_TYPES) {
     if (MediaRecorder.isTypeSupported(mime)) return mime;
   }
   return null;
+}
+
+export type RecordingSupportQuality = "excellent" | "limited" | "unsupported";
+
+export interface RecordingSupport {
+  supported: boolean;
+  mimeType: string | null;
+  quality: RecordingSupportQuality;
+  message?: string;
+}
+
+/**
+ * Probe MediaRecorder support so the UI can warn (or block) BEFORE the user
+ * tries to hit Record. Safari lands on the "limited" branch because its
+ * fMP4 output path hasn't been exercised end-to-end here; Chrome / Firefox /
+ * Edge hit the WebM branch and are marked excellent.
+ */
+export function checkRecordingSupport(): RecordingSupport {
+  if (typeof MediaRecorder === "undefined") {
+    return {
+      supported: false,
+      mimeType: null,
+      quality: "unsupported",
+      message:
+        "This browser can't record locally. Please use the latest Chrome, Firefox, or Edge.",
+    };
+  }
+  const mime = getSupportedMimeType();
+  if (!mime) {
+    return {
+      supported: false,
+      mimeType: null,
+      quality: "unsupported",
+      message:
+        "No supported recording format in this browser. Please use Chrome, Firefox, or Edge.",
+    };
+  }
+  if (mime.startsWith("video/mp4")) {
+    return {
+      supported: true,
+      mimeType: mime,
+      quality: "limited",
+      message:
+        "Recording works in Safari, but quality is best in Chrome, Firefox, or Edge.",
+    };
+  }
+  return { supported: true, mimeType: mime, quality: "excellent" };
 }
 
 export interface RecorderCallbacks {

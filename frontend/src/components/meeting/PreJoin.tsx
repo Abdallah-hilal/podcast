@@ -19,11 +19,15 @@ interface Props {
   joining?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  /** Non-blocking warning ("Safari recording is limited"), rendered above
+   * the preview. Pass only when the warning is still actionable here — once
+   * the user is in the room a persistent banner is noise. */
+  supportWarning?: string | null;
 }
 
 type Devices = { cameras: MediaDeviceInfo[]; mics: MediaDeviceInfo[] };
 
-export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledReason }: Props) {
+export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledReason, supportWarning }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [devices, setDevices] = useState<Devices>({ cameras: [], mics: [] });
@@ -135,6 +139,15 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             {title}
           </h1>
         </div>
+
+        {supportWarning && (
+          <div
+            role="status"
+            className="text-center text-xs text-orange-200 bg-orange-400/10 border border-orange-400/30 rounded-xl px-3 py-2 backdrop-blur-sm"
+          >
+            {supportWarning}
+          </div>
+        )}
 
         <div
           className="relative aspect-video bg-black rounded-2xl overflow-hidden ring-1 ring-white/10"

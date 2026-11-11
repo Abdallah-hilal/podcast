@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     cors_origins: str = "http://localhost:3000"
 
+    # Error tracking. Empty = Sentry stays uninitialized (no-op). Set
+    # SENTRY_DSN on the VPS to turn it on; the SDK auto-captures uncaught
+    # exceptions once init has been called.
+    sentry_dsn: str = ""
+    sentry_environment: str = "production"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

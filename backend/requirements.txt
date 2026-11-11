@@ -34,6 +34,7 @@ python-jose==3.5.0
 PyYAML==6.0.3
 realtime==2.34.0
 rsa==4.9.1
+sentry-sdk==2.74.0
 six==1.17.0
 starlette==1.10.0
 storage3==2.34.0
