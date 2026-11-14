@@ -45,6 +45,9 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE") or None  # None = auto-detect
+WHISPER_EXPECTED_LANGUAGES = tuple(
+    x.strip() for x in os.environ.get("WHISPER_EXPECTED_LANGUAGES", "ar,en").split(",") if x.strip()
+)
 
 # Composite knobs — tunable via env
 COMPOSITE_WIDTH = int(os.environ.get("COMPOSITE_WIDTH", "1920"))
@@ -312,12 +315,23 @@ def process_transcribe(db: Client, job: dict) -> None:
         # numpy array directly — bypasses faster-whisper.audio.decode_audio.
         audio = _decode_audio_to_f32_mono(tmp_path, sampling_rate=16000)
         model = _load_whisper()
-        segments_iter, info = model.transcribe(
-            audio,
-            language=WHISPER_LANGUAGE,
-            vad_filter=True,
-            beam_size=1,
-        )
+
+        def run(language: str | None):
+            return model.transcribe(
+                audio,
+                language=language,
+                vad_filter=True,
+                beam_size=1,
+                word_timestamps=True,
+            )
+
+        segments_iter, info = run(WHISPER_LANGUAGE)
+        # Auto-detect misfires on short or quiet clips (a 10s Arabic take came
+        # back as Kannada). Outside the expected languages, redo in the first.
+        if not WHISPER_LANGUAGE and info.language not in WHISPER_EXPECTED_LANGUAGES:
+            log.info("job %s: detected %s (p=%.2f), retrying as %s", job["id"],
+                     info.language, info.language_probability, WHISPER_EXPECTED_LANGUAGES[0])
+            segments_iter, info = run(WHISPER_EXPECTED_LANGUAGES[0])
         segments = []
         parts: list[str] = []
         for seg in segments_iter:
@@ -326,6 +340,11 @@ def process_transcribe(db: Client, job: dict) -> None:
                     "start": round(seg.start, 3),
                     "end": round(seg.end, 3),
                     "text": seg.text,
+                    # Short keys: one entry per word adds up over an hour.
+                    "words": [
+                        {"s": round(w.start, 2), "e": round(w.end, 2), "w": w.word}
+                        for w in (seg.words or [])
+                    ],
                 }
             )
             parts.append(seg.text)

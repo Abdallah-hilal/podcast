@@ -30,6 +30,8 @@ export class RecordingComposer {
   private video: HTMLVideoElement;
   private currentVideoTrack: MediaStreamTrack | null = null;
   private rafId: number | null = null;
+  private ticker: Worker | null = null;
+  private tickerUrl: string | null = null;
   // Once we've sized the canvas to the first live source we don't resize
   // again — MediaRecorder has mixed behaviour when the capture-stream frame
   // size changes mid-recording, and cover-fitting subsequent cameras into a
@@ -133,6 +135,10 @@ export class RecordingComposer {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.ticker?.terminate();
+    this.ticker = null;
+    if (this.tickerUrl) URL.revokeObjectURL(this.tickerUrl);
+    this.tickerUrl = null;
     this.video.srcObject = null;
     this.video.remove();
     if (this.currentAudioSource) {
@@ -175,6 +181,18 @@ export class RecordingComposer {
   }
 
   private startDrawLoop(): void {
+    // rAF stops entirely while the tab is hidden, which would freeze the
+    // recorded video whenever the user switches tabs mid-take. A dedicated
+    // worker's timer keeps ticking in the background; rAF is the fallback.
+    try {
+      const src = `setInterval(() => postMessage(0), ${Math.round(1000 / this.fps)});`;
+      this.tickerUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+      this.ticker = new Worker(this.tickerUrl);
+      this.ticker.onmessage = () => this.drawFrame();
+      return;
+    } catch (e) {
+      console.warn("RecordingComposer: worker ticker unavailable, using rAF:", e);
+    }
     const tick = () => {
       this.drawFrame();
       this.rafId = requestAnimationFrame(tick);

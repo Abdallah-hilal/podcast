@@ -32,3 +32,6 @@ npm-debug.log*
 
 # Testing
 coverage/
+
+# Local podcast edits (media)
+exports/
