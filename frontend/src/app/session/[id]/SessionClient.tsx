@@ -60,6 +60,13 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   const [localSaveFilename, setLocalSaveFilename] = useState<string | null>(
     null,
   );
+  // Blob URL + filename for the "Download recording" button that appears
+  // after Stop on browsers where the auto-save path (File System Access or
+  // programmatic <a download>) didn't give the user the file. Must be declared
+  // before handleStopRecording closes over setPendingDownload.
+  const [pendingDownload, setPendingDownload] = useState<
+    { url: string; filename: string } | null
+  >(null);
   // Probe MediaRecorder on client mount so the Join button can say "sorry,
   // your browser can't record" BEFORE the user tries. `useSyncExternalStore`
   // keeps SSR rendering with `null` (server snapshot) and the client first
@@ -197,41 +204,71 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     } catch (err) {
       console.error("Failed to stop recording:", err);
     }
-    // If the user never picked a local file (toggle was off or they
-    // cancelled the Save-As dialog), hand them the raw per-side recording
-    // automatically. The browser's Downloads folder is "guaranteed save"
-    // without requiring another user gesture mid-flow. If they DID pick a
-    // file, their copy is already on disk — skip the auto-download so we
-    // don't create a duplicate.
+    // If the user DID pick a File System Access handle in PreJoin (desktop
+    // Chrome/Edge), the file is already on disk — nothing more to do.
+    // Otherwise, hand them the raw per-side recording via:
+    //   1. Web Share API (iOS 15+ / Chrome Android) — opens the native
+    //      share sheet; they tap "Save to Files" / Drive / wherever.
+    //   2. Programmatic <a download> — desktop Chrome/Firefox save to
+    //      Downloads folder; iOS Safari ignores the download attribute and
+    //      opens the blob in the tab (tap-and-hold → Save Video).
+    //   3. Visible "Download recording" button that stays up after Stop so
+    //      a cancelled share sheet or swallowed download click still has a
+    //      recoverable path (one tap).
     try {
-      if (!pipelineRef.current.localSaveFilename) {
-        const blob = await pipelineRef.current.assembleFullBlob();
-        if (blob) {
-          const ext = pipelineRef.current.localSaveExtension();
-          const safeTitle = (sessionTitle || "recording")
-            .replace(/[^\w\s-]/g, "")
-            .trim()
-            .replace(/\s+/g, "-")
-            .toLowerCase()
-            .slice(0, 40) || "recording";
-          const stamp = new Date()
-            .toISOString()
-            .slice(0, 16)
-            .replace(/[:T]/g, "-");
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${safeTitle}-${stamp}.${ext}`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          // Give the browser a moment to start the download before revoking.
-          setTimeout(() => URL.revokeObjectURL(url), 2000);
-          // Record what we handed off so the UI can show it as the current
-          // save target, even though it went to the Downloads folder.
-          setLocalSaveFilename(a.download);
+      if (pipelineRef.current.localSaveFilename) return;
+      const blob = await pipelineRef.current.assembleFullBlob();
+      if (!blob) return;
+
+      const ext = pipelineRef.current.localSaveExtension();
+      const safeTitle = (sessionTitle || "recording")
+        .replace(/[^\w\s-]/g, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .toLowerCase()
+        .slice(0, 40) || "recording";
+      const stamp = new Date()
+        .toISOString()
+        .slice(0, 16)
+        .replace(/[:T]/g, "-");
+      const filename = `${safeTitle}-${stamp}.${ext}`;
+
+      // Always put the blob behind a visible button so there's a fallback.
+      // Give the <a download> / Share attempt a fresh URL so the badge URL
+      // doesn't get revoked underneath them.
+      setPendingDownload({ url: URL.createObjectURL(blob), filename });
+
+      // Try native share first. canShare({ files }) returns false on
+      // desktop Chrome, Firefox, and anywhere the capability isn't wired —
+      // we fall straight through to <a download> there.
+      const file = new File([blob], filename, { type: blob.type });
+      const nav = navigator as Navigator & {
+        canShare?: (data: { files: File[] }) => boolean;
+        share?: (data: { files: File[]; title?: string }) => Promise<void>;
+      };
+      if (nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], title: "Podcast recording" });
+          setLocalSaveFilename(filename);
+          return;
+        } catch (e) {
+          // AbortError = user cancelled the share sheet; leave the download
+          // button visible and don't try the <a download> fallback (would
+          // double-prompt on Android).
+          if ((e as { name?: string })?.name === "AbortError") return;
         }
       }
+
+      // Desktop fallback.
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = dlUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 2000);
+      setLocalSaveFilename(filename);
     } catch (err) {
       console.warn("Auto-download of local copy failed:", err);
     }
@@ -254,6 +291,14 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         null,
     );
   }, [preChoice]);
+
+  // Revoke the blob URL when the component unmounts or we replace the one
+  // the badge was pointing at.
+  useEffect(() => {
+    return () => {
+      if (pendingDownload) URL.revokeObjectURL(pendingDownload.url);
+    };
+  }, [pendingDownload]);
 
   const handleChangeLocalSave = useCallback(async () => {
     type FsWin = Window & {
@@ -419,6 +464,13 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesFailed={progress.batchesFailed}
             lastError={progress.lastError}
           />
+          {pendingDownload && (
+            <DownloadRecordingBadge
+              url={pendingDownload.url}
+              filename={pendingDownload.filename}
+              onDismiss={() => setPendingDownload(null)}
+            />
+          )}
         </div>
         <LocalControlBar
           recState={pipelineState}
@@ -490,6 +542,13 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesFailed={progress.batchesFailed}
             lastError={progress.lastError}
           />
+          {pendingDownload && (
+            <DownloadRecordingBadge
+              url={pendingDownload.url}
+              filename={pendingDownload.filename}
+              onDismiss={() => setPendingDownload(null)}
+            />
+          )}
         </div>
         <RoomRecordingControls
           recState={pipelineState}
@@ -503,6 +562,64 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       </div>
       <RoomAudioRenderer />
     </LiveKitRoom>
+  );
+}
+
+/**
+ * Visible "Download recording" card that surfaces after Stop on browsers
+ * where neither File System Access nor the programmatic <a download> landed
+ * a file on disk — chiefly iOS Safari (which opens blob: URLs in the tab
+ * but ignores the download attribute). Tapping the link here triggers the
+ * native handler: Chrome Android downloads; iOS Safari opens the blob in a
+ * tab from which the user can tap-and-hold → Save Video.
+ */
+function DownloadRecordingBadge({
+  url,
+  filename,
+  onDismiss,
+}: {
+  url: string;
+  filename: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4">
+      <div
+        className="pointer-events-auto material-dark border border-white/20 rounded-2xl p-4 flex items-center gap-3 shadow-xl max-w-md w-full"
+        role="status"
+        aria-live="polite"
+      >
+        <svg aria-hidden className="w-6 h-6 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-white">
+            Your recording is ready
+          </p>
+          <p className="text-[11px] text-teal-200/80 truncate">
+            {filename}
+          </p>
+        </div>
+        <a
+          href={url}
+          download={filename}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="press px-4 py-2 bg-coral-600 hover:bg-coral-700 text-white rounded-xl text-sm font-bold whitespace-nowrap shadow-lg"
+        >
+          Download
+        </a>
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="press w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center shrink-0"
+        >
+          ×
+        </button>
+      </div>
+    </div>
   );
 }
 
