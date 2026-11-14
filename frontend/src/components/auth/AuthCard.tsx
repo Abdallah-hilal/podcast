@@ -5,34 +5,25 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/common/Logo";
 
-type Mode = "signin" | "signup";
-
-interface Props {
-  initialMode: Mode;
-}
-
 function sanitizeNext(raw: string | null): string {
   if (!raw) return "/";
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
 }
 
-export function AuthCard({ initialMode }: Props) {
+export function AuthCard() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setNotice("");
 
     const search =
       typeof window !== "undefined" ? window.location.search : "";
@@ -40,34 +31,15 @@ export function AuthCard({ initialMode }: Props) {
     const next = sanitizeNext(nextParam);
 
     try {
-      if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) {
-          setError(error.message);
-          return;
-        }
-        router.push(next);
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (error) {
-          setError(error.message);
-          return;
-        }
-        if (data.session) {
-          router.push(next);
-          return;
-        }
-        setNotice(
-          "Account created. Check your email for a confirmation link, then sign in.",
-        );
-        setMode("signin");
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        setError(error.message);
+        return;
       }
+      router.push(next);
     } finally {
       setLoading(false);
     }
@@ -101,29 +73,6 @@ export function AuthCard({ initialMode }: Props) {
           className="bg-surface border border-border rounded-2xl p-6"
           style={{ boxShadow: "var(--shadow-photo)" }}
         >
-          <div className="flex gap-1 p-1 bg-cream-sunken rounded-xl mb-5">
-            <TabButton
-              active={mode === "signin"}
-              onClick={() => {
-                setMode("signin");
-                setError("");
-                setNotice("");
-              }}
-            >
-              Sign in
-            </TabButton>
-            <TabButton
-              active={mode === "signup"}
-              onClick={() => {
-                setMode("signup");
-                setError("");
-                setNotice("");
-              }}
-            >
-              Create account
-            </TabButton>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-3">
             <label className="block space-y-1.5">
               <span className="block text-[11px] uppercase tracking-widest font-bold text-ink-muted">
@@ -146,16 +95,11 @@ export function AuthCard({ initialMode }: Props) {
               </span>
               <input
                 type="password"
-                placeholder={
-                  mode === "signup" ? "At least 6 characters" : "Your password"
-                }
+                placeholder="Your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={mode === "signup" ? 6 : undefined}
-                autoComplete={
-                  mode === "signup" ? "new-password" : "current-password"
-                }
+                autoComplete="current-password"
                 className="w-full px-3 py-2.5 bg-cream-sunken/70 border border-border rounded-xl text-ink placeholder-cream-400 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-colors"
               />
             </label>
@@ -165,24 +109,13 @@ export function AuthCard({ initialMode }: Props) {
                 {error}
               </p>
             )}
-            {notice && (
-              <p className="text-brand bg-teal-100 border border-teal-900/10 rounded-lg px-3 py-2 text-sm">
-                {notice}
-              </p>
-            )}
 
             <button
               type="submit"
               disabled={loading}
               className="press w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-60 disabled:hover:bg-brand text-white rounded-xl font-bold shadow-md hover:shadow-lg"
             >
-              {loading
-                ? mode === "signin"
-                  ? "Signing in…"
-                  : "Creating account…"
-                : mode === "signin"
-                  ? "Sign in"
-                  : "Create account"}
+              {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
         </div>
@@ -192,31 +125,5 @@ export function AuthCard({ initialMode }: Props) {
         </p>
       </div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={[
-        "press-sm flex-1 py-2 text-sm font-bold rounded-lg",
-        active
-          ? "bg-surface text-brand shadow-sm"
-          : "text-ink-muted hover:text-ink",
-      ].join(" ")}
-    >
-      {children}
-    </button>
   );
 }

@@ -23,7 +23,6 @@ import {
   checkRecordingSupport,
   type RecordingSupport,
 } from "@/lib/recording/mediaRecorder";
-import { loginUrlWithNext } from "@/lib/auth-redirect";
 import type {
   PipelineState,
   PipelineProgress,
@@ -109,12 +108,23 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     let mounted = true;
 
     async function init() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // Guest flow: an invite link is the credential. If the viewer isn't
+      // signed in, give them an anonymous Supabase user transparently so
+      // they can join, record, and upload without ever seeing a login page.
+      // The host still signs in with email+password via /login.
+      let { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.push(loginUrlWithNext());
-        return;
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error || !data.session) {
+          if (mounted) {
+            setError(
+              error?.message ??
+                "Couldn't open this session. Ask the host for a fresh invite link.",
+            );
+          }
+          return;
+        }
+        session = data.session;
       }
       setAuthed(true);
 
@@ -141,7 +151,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     return () => {
       mounted = false;
     };
-  }, [sessionId, router, supabase]);
+  }, [sessionId, supabase]);
 
   const getFreshToken = useCallback(async () => {
     const {
