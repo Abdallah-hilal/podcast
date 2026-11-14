@@ -84,6 +84,12 @@ export default function RecordingsPage() {
         router.push(loginUrlWithNext());
         return;
       }
+      // Guests (anonymous Supabase users) shouldn't see the host's full
+      // recordings library. Bounce them back where they came from.
+      if (session.user.is_anonymous) {
+        router.replace("/");
+        return;
+      }
       if (mounted) setToken(session.access_token);
 
       const { data, error } = await supabase

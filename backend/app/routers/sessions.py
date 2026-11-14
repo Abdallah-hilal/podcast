@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from supabase import create_client
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_host_user
 from app.services import livekit
 from app.services.storage import create_signed_download_url, remove_prefix
 
@@ -36,7 +36,10 @@ class CreateSessionResponse(BaseModel):
 @router.post("", response_model=CreateSessionResponse, status_code=201)
 async def create_session(
     body: CreateSessionRequest,
-    user_id: str = Depends(get_current_user),
+    # Host-only: anonymous magic-link guests must not be able to spin up
+    # their own sessions and hand out invites — the whole point of the
+    # magic-link model is that only one account creates rooms.
+    user_id: str = Depends(get_host_user),
 ):
     db = _get_db()
 

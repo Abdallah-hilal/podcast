@@ -19,10 +19,21 @@ export default function HomePage() {
   const router = useRouter();
   const supabase = createClient();
 
+  const [guestBlocked, setGuestBlocked] = useState(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         router.push(loginUrlWithNext());
+        return;
+      }
+      // Anonymous Supabase users are magic-link guests. They have a valid
+      // JWT, but the home page (create session + list sessions) is for the
+      // host account only. Flip them into a "this isn't for you" state
+      // instead of letting them create sessions the backend will now
+      // reject anyway.
+      if (session.user.is_anonymous) {
+        setGuestBlocked(true);
         return;
       }
       setToken(session.access_token);
@@ -61,6 +72,33 @@ export default function HomePage() {
     if (!token) return;
     await api.deleteSession(token, sessionId);
     setSessions((xs) => xs?.filter((s) => s.id !== sessionId) ?? xs);
+  }
+
+  if (guestBlocked) {
+    return (
+      <div className="min-h-screen bg-cream flex items-center justify-center p-6">
+        <div
+          className="max-w-md text-center space-y-4 bg-surface border border-border rounded-2xl p-6"
+          style={{ boxShadow: "var(--shadow-photo)" }}
+        >
+          <h1 className="text-xl font-black text-ink">You&apos;re in as a guest</h1>
+          <p className="text-ink-muted text-sm leading-relaxed">
+            Guest invites can only open the session they were sent for. Open the
+            link the host shared with you, or sign out and sign in with a host
+            account.
+          </p>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              router.push("/login");
+            }}
+            className="press inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl font-bold shadow-md"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!token) return null;
