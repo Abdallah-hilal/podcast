@@ -681,15 +681,49 @@ function DownloadRecordingBadge({
             {filename}
           </p>
         </div>
-        <a
-          href={url}
-          download={filename}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={() => {
+            // Programmatic anchor click instead of a visible <a download
+            // target="_blank">. Chrome Desktop ignores `download` when
+            // target="_blank" is also set — so a user-click on the visible
+            // anchor opened a new tab instead of saving the file. Native
+            // share stays available for mobile browsers that implement
+            // Web Share with files.
+            type ShareNavigator = Navigator & {
+              canShare?: (data: { files: File[] }) => boolean;
+              share?: (data: { files: File[]; title?: string }) => Promise<void>;
+            };
+            const nav = navigator as ShareNavigator;
+            fetch(url)
+              .then((r) => r.blob())
+              .then(async (blob) => {
+                const file = new File([blob], filename, { type: blob.type });
+                if (
+                  nav.canShare &&
+                  nav.share &&
+                  nav.canShare({ files: [file] })
+                ) {
+                  try {
+                    await nav.share({ files: [file], title: filename });
+                    return;
+                  } catch (e) {
+                    if ((e as { name?: string })?.name === "AbortError") return;
+                    // Fall through to <a download> on share failure.
+                  }
+                }
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              })
+              .catch((e) => console.warn("Download failed:", e));
+          }}
           className="press px-4 py-2 bg-coral-600 hover:bg-coral-700 text-white rounded-xl text-sm font-bold whitespace-nowrap shadow-lg"
         >
           Download
-        </a>
+        </button>
         <button
           onClick={onDismiss}
           aria-label="Dismiss"
