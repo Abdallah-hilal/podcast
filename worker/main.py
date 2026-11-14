@@ -4,9 +4,9 @@ Processing worker for podcast recordings.
 Polls the `processing_jobs` table and dispatches on `job_type`:
   * `reconstruct` — concatenate uploaded batches into a single WebM.
   * `transcribe`  — run faster-whisper on the reconstructed file, store
-                    transcript_text + segments on podcast_recordings.
+                    transcript_text + segments on podcast.recordings.
   * `composite`   — ffmpeg side-by-side of all ready recordings in a session,
-                    store under podcast_session_composites.
+                    store under podcast.session_composites.
 
 The byte-wise WebM concat is safe because every batch comes from one browser
 `MediaRecorder` session using timeslice: the recorder emits one WebM header
@@ -87,7 +87,7 @@ def _get_client() -> Client:
 def claim_next_job(db: Client) -> dict | None:
     """Find and claim the oldest pending job across all known types."""
     candidates = (
-        db.table("processing_jobs")
+        db.schema("podcast").table("processing_jobs")
         .select("*")
         .eq("status", "pending")
         .in_("job_type", list(JOB_TYPES))
@@ -100,7 +100,7 @@ def claim_next_job(db: Client) -> dict | None:
 
     job = candidates.data[0]
     claimed = (
-        db.table("processing_jobs")
+        db.schema("podcast").table("processing_jobs")
         .update({"status": "processing", "attempts": job["attempts"] + 1})
         .eq("id", job["id"])
         .eq("status", "pending")
@@ -120,7 +120,7 @@ def process_reconstruct(db: Client, job: dict) -> None:
     log.info("job %s: reconstructing recording %s", job["id"], recording_id)
 
     recording = (
-        db.table("podcast_recordings")
+        db.schema("podcast").table("recordings")
         .select("final_storage_path")
         .eq("id", recording_id)
         .single()
@@ -133,7 +133,7 @@ def process_reconstruct(db: Client, job: dict) -> None:
         )
 
     batches = (
-        db.table("recording_batches")
+        db.schema("podcast").table("recording_batches")
         .select("sequence_number, storage_path, byte_size")
         .eq("recording_id", recording_id)
         .order("sequence_number")
@@ -164,7 +164,7 @@ def process_reconstruct(db: Client, job: dict) -> None:
         except OSError:
             pass
 
-    db.table("podcast_recordings").update(
+    db.schema("podcast").table("recordings").update(
         {
             "status": "ready",
             "total_bytes": total,
@@ -172,12 +172,12 @@ def process_reconstruct(db: Client, job: dict) -> None:
             "transcript_status": "pending",
         }
     ).eq("id", recording_id).execute()
-    db.table("processing_jobs").update(
+    db.schema("podcast").table("processing_jobs").update(
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
 
     # Auto-enqueue transcription for this recording.
-    db.table("processing_jobs").insert(
+    db.schema("podcast").table("processing_jobs").insert(
         {
             "id": str(uuid4()),
             "recording_id": recording_id,
@@ -239,7 +239,7 @@ def process_transcribe(db: Client, job: dict) -> None:
     log.info("job %s: transcribing recording %s", job["id"], recording_id)
 
     recording = (
-        db.table("podcast_recordings")
+        db.schema("podcast").table("recordings")
         .select("final_storage_path, transcript_status")
         .eq("id", recording_id)
         .single()
@@ -249,7 +249,7 @@ def process_transcribe(db: Client, job: dict) -> None:
     if not final_path:
         raise RuntimeError(f"recording {recording_id} has no final_storage_path")
 
-    db.table("podcast_recordings").update(
+    db.schema("podcast").table("recordings").update(
         {"transcript_status": "processing", "transcript_error": None}
     ).eq("id", recording_id).execute()
 
@@ -284,7 +284,7 @@ def process_transcribe(db: Client, job: dict) -> None:
             parts.append(seg.text)
         full_text = "".join(parts).strip()
 
-        db.table("podcast_recordings").update(
+        db.schema("podcast").table("recordings").update(
             {
                 "transcript_status": "ready",
                 "transcript_language": info.language,
@@ -300,7 +300,7 @@ def process_transcribe(db: Client, job: dict) -> None:
         except OSError:
             pass
 
-    db.table("processing_jobs").update(
+    db.schema("podcast").table("processing_jobs").update(
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
     log.info(
@@ -329,13 +329,13 @@ def process_composite(db: Client, job: dict) -> None:
         raise RuntimeError("composite job has no session_id")
     log.info("job %s: compositing session %s", job["id"], session_id)
 
-    db.table("podcast_session_composites").update(
+    db.schema("podcast").table("session_composites").update(
         {"status": "processing", "error_message": None, "updated_at": _now_iso()}
     ).eq("session_id", session_id).execute()
 
     # Collect ready recordings for this session, oldest first — stable ordering.
     recordings = (
-        db.table("podcast_recordings")
+        db.schema("podcast").table("recordings")
         .select("id, final_storage_path, created_at")
         .eq("session_id", session_id)
         .eq("status", "ready")
@@ -372,7 +372,7 @@ def process_composite(db: Client, job: dict) -> None:
                 {"content-type": "video/webm", "upsert": "true"},
             )
 
-        db.table("podcast_session_composites").update(
+        db.schema("podcast").table("session_composites").update(
             {
                 "status": "ready",
                 "final_storage_path": final_path,
@@ -384,7 +384,7 @@ def process_composite(db: Client, job: dict) -> None:
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    db.table("processing_jobs").update(
+    db.schema("podcast").table("processing_jobs").update(
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
     log.info("job %s: composite ready for session %s (%d inputs)", job["id"], session_id, len(local_inputs))
@@ -446,7 +446,7 @@ def fail_job(db: Client, job: dict, err: Exception) -> None:
     log.exception("job %s failed on attempt %d: %s", job["id"], attempts, message)
 
     final = attempts >= MAX_ATTEMPTS
-    db.table("processing_jobs").update(
+    db.schema("podcast").table("processing_jobs").update(
         {
             "status": "failed" if final else "pending",
             "error_message": message,
@@ -460,15 +460,15 @@ def fail_job(db: Client, job: dict, err: Exception) -> None:
     # Terminal failure — mark the owning entity errored.
     jt = job["job_type"]
     if jt == "reconstruct" and job.get("recording_id"):
-        db.table("podcast_recordings").update({"status": "error"}).eq(
+        db.schema("podcast").table("recordings").update({"status": "error"}).eq(
             "id", job["recording_id"]
         ).execute()
     elif jt == "transcribe" and job.get("recording_id"):
-        db.table("podcast_recordings").update(
+        db.schema("podcast").table("recordings").update(
             {"transcript_status": "error", "transcript_error": message}
         ).eq("id", job["recording_id"]).execute()
     elif jt == "composite" and job.get("session_id"):
-        db.table("podcast_session_composites").update(
+        db.schema("podcast").table("session_composites").update(
             {"status": "error", "error_message": message, "updated_at": _now_iso()}
         ).eq("session_id", job["session_id"]).execute()
 

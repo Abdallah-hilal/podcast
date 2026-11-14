@@ -86,14 +86,16 @@ async def ready():
     checks: dict[str, dict[str, object]] = {}
 
     # Supabase REST endpoint should answer anything that touches the service
-    # role key. A HEAD against any table is cheap and auth-gated.
+    # role key. A HEAD against any table in the podcast schema is cheap and
+    # also confirms PGRST_DB_SCHEMAS exposes the schema correctly.
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.head(
-                f"{settings.supabase_url}/rest/v1/podcast_sessions",
+                f"{settings.supabase_url}/rest/v1/sessions",
                 headers={
                     "apikey": settings.supabase_service_role_key,
                     "Authorization": f"Bearer {settings.supabase_service_role_key}",
+                    "Accept-Profile": "podcast",
                     "Range": "0-0",
                 },
             )

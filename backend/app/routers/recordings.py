@@ -17,7 +17,10 @@ router = APIRouter(prefix="/api/v1", tags=["recordings"])
 
 
 def _get_db():
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+    # Podcast tables live in a dedicated `podcast` schema (see migration 005).
+    return create_client(
+        settings.supabase_url, settings.supabase_service_role_key
+    ).schema("podcast")
 
 
 class StartRecordingRequest(BaseModel):
@@ -50,7 +53,7 @@ async def start_recording(
     # a stop against a late start() call, we'd otherwise orphan a recording
     # row with no way to hit /finalize.
     session = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("status")
         .eq("id", session_id)
         .single()
@@ -62,7 +65,7 @@ async def start_recording(
         raise HTTPException(status_code=400, detail="Session has ended")
 
     participant = (
-        db.table("podcast_participants")
+        db.table("participants")
         .select("id")
         .eq("session_id", session_id)
         .eq("user_id", user_id)
@@ -75,7 +78,7 @@ async def start_recording(
     participant_id = participant.data["id"]
     recording_id = str(uuid4())
 
-    db.table("podcast_recordings").insert(
+    db.table("recordings").insert(
         {
             "id": recording_id,
             "session_id": session_id,
@@ -120,8 +123,8 @@ async def register_batch(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
-        .select("*, podcast_participants!inner(user_id, session_id)")
+        db.table("recordings")
+        .select("*, participants!inner(user_id, session_id)")
         .eq("id", recording_id)
         .single()
         .execute()
@@ -129,7 +132,7 @@ async def register_batch(
     if not recording.data:
         raise HTTPException(status_code=404, detail="Recording not found")
 
-    if recording.data["podcast_participants"]["user_id"] != user_id:
+    if recording.data["participants"]["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Not your recording")
 
     session_id = recording.data["session_id"]
@@ -196,15 +199,15 @@ async def finalize_recording(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
-        .select("*, podcast_participants!inner(user_id, session_id)")
+        db.table("recordings")
+        .select("*, participants!inner(user_id, session_id)")
         .eq("id", recording_id)
         .single()
         .execute()
     )
     if not recording.data:
         raise HTTPException(status_code=404, detail="Recording not found")
-    if recording.data["podcast_participants"]["user_id"] != user_id:
+    if recording.data["participants"]["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Not your recording")
 
     pending = (
@@ -224,7 +227,7 @@ async def finalize_recording(
     participant_id = recording.data["participant_id"]
     final_path = get_final_path(session_id, participant_id, recording_id)
 
-    db.table("podcast_recordings").update(
+    db.table("recordings").update(
         {"status": "uploaded", "final_storage_path": final_path}
     ).eq("id", recording_id).execute()
 
@@ -252,8 +255,8 @@ async def delete_recording(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
-        .select("session_id, participant_id, podcast_participants!inner(user_id)")
+        db.table("recordings")
+        .select("session_id, participant_id, participants!inner(user_id)")
         .eq("id", recording_id)
         .single()
         .execute()
@@ -262,14 +265,14 @@ async def delete_recording(
         raise HTTPException(status_code=404, detail="Recording not found")
 
     session_owner = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("owner_id")
         .eq("id", recording.data["session_id"])
         .single()
         .execute()
     )
     is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
-    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    is_participant = recording.data["participants"]["user_id"] == user_id
     if not is_owner and not is_participant:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -281,7 +284,7 @@ async def delete_recording(
     )
     remove_prefix(prefix)
 
-    db.table("podcast_recordings").delete().eq("id", recording_id).execute()
+    db.table("recordings").delete().eq("id", recording_id).execute()
 
 
 @router.get("/recordings/{recording_id}/download")
@@ -292,8 +295,8 @@ async def download_recording(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
-        .select("*, podcast_participants!inner(user_id, session_id)")
+        db.table("recordings")
+        .select("*, participants!inner(user_id, session_id)")
         .eq("id", recording_id)
         .single()
         .execute()
@@ -302,7 +305,7 @@ async def download_recording(
         raise HTTPException(status_code=404, detail="Recording not found")
 
     session_owner = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("owner_id")
         .eq("id", recording.data["session_id"])
         .single()
@@ -310,7 +313,7 @@ async def download_recording(
     )
 
     is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
-    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    is_participant = recording.data["participants"]["user_id"] == user_id
 
     if not is_owner and not is_participant:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -339,11 +342,11 @@ async def get_transcript(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
+        db.table("recordings")
         .select(
             "transcript_status, transcript_language, transcript_text, "
             "transcript_segments, transcript_error, session_id, "
-            "podcast_participants!inner(user_id)"
+            "participants!inner(user_id)"
         )
         .eq("id", recording_id)
         .single()
@@ -353,14 +356,14 @@ async def get_transcript(
         raise HTTPException(status_code=404, detail="Recording not found")
 
     session_owner = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("owner_id")
         .eq("id", recording.data["session_id"])
         .single()
         .execute()
     )
     is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
-    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    is_participant = recording.data["participants"]["user_id"] == user_id
     if not is_owner and not is_participant:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -391,10 +394,10 @@ async def retry_transcribe(
     db = _get_db()
 
     recording = (
-        db.table("podcast_recordings")
+        db.table("recordings")
         .select(
             "final_storage_path, session_id, "
-            "podcast_participants!inner(user_id)"
+            "participants!inner(user_id)"
         )
         .eq("id", recording_id)
         .single()
@@ -404,21 +407,21 @@ async def retry_transcribe(
         raise HTTPException(status_code=404, detail="Recording not found")
 
     session_owner = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("owner_id")
         .eq("id", recording.data["session_id"])
         .single()
         .execute()
     )
     is_owner = session_owner.data and session_owner.data["owner_id"] == user_id
-    is_participant = recording.data["podcast_participants"]["user_id"] == user_id
+    is_participant = recording.data["participants"]["user_id"] == user_id
     if not is_owner and not is_participant:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not recording.data.get("final_storage_path"):
         raise HTTPException(status_code=400, detail="Recording not yet processed")
 
-    db.table("podcast_recordings").update(
+    db.table("recordings").update(
         {"transcript_status": "pending", "transcript_error": None}
     ).eq("id", recording_id).execute()
 

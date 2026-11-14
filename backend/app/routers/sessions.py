@@ -14,7 +14,12 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
 def _get_db():
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+    # All podcast tables live in a dedicated `podcast` schema, isolated from
+    # the shared Supabase `public` schema. .schema() returns a sub-client
+    # scoped to that schema; subsequent .table() calls hit podcast.<name>.
+    return create_client(
+        settings.supabase_url, settings.supabase_service_role_key
+    ).schema("podcast")
 
 
 class CreateSessionRequest(BaseModel):
@@ -42,7 +47,7 @@ async def create_session(
     else:
         room_name, url = f"local-{session_id}", ""
 
-    db.table("podcast_sessions").insert(
+    db.table("sessions").insert(
         {
             "id": session_id,
             "owner_id": user_id,
@@ -53,7 +58,7 @@ async def create_session(
     ).execute()
 
     participant_id = str(uuid4())
-    db.table("podcast_participants").insert(
+    db.table("participants").insert(
         {
             "id": participant_id,
             "session_id": session_id,
@@ -86,7 +91,7 @@ async def join_session(
     db = _get_db()
 
     session = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("*")
         .eq("id", session_id)
         .single()
@@ -102,7 +107,7 @@ async def join_session(
     # First successful join flips the session from "created" to "active" so
     # the home-page badge reflects reality.
     if session_data["status"] == "created":
-        db.table("podcast_sessions").update(
+        db.table("sessions").update(
             {
                 "status": "active",
                 "started_at": datetime.now(timezone.utc).isoformat(),
@@ -112,7 +117,7 @@ async def join_session(
     # supabase-py returns None from `.maybe_single().execute()` when no row
     # matches (not an object with `.data = None`), so guard both.
     existing = (
-        db.table("podcast_participants")
+        db.table("participants")
         .select("*")
         .eq("session_id", session_id)
         .eq("user_id", user_id)
@@ -126,7 +131,7 @@ async def join_session(
         is_owner = existing.data["role"] == "host"
     else:
         participant_count = (
-            db.table("podcast_participants")
+            db.table("participants")
             .select("id", count="exact")
             .eq("session_id", session_id)
             .execute()
@@ -137,7 +142,7 @@ async def join_session(
         participant_id = str(uuid4())
         display_name = "Guest"
         is_owner = False
-        db.table("podcast_participants").insert(
+        db.table("participants").insert(
             {
                 "id": participant_id,
                 "session_id": session_id,
@@ -178,7 +183,7 @@ async def delete_session(
     _owner_only(db, session_id, user_id)
 
     remove_prefix(f"sessions/{session_id}")
-    db.table("podcast_sessions").delete().eq("id", session_id).execute()
+    db.table("sessions").delete().eq("id", session_id).execute()
 
 
 class SessionStatusResponse(BaseModel):
@@ -197,7 +202,7 @@ async def get_session(
     db = _get_db()
 
     session = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("*")
         .eq("id", session_id)
         .single()
@@ -207,7 +212,7 @@ async def get_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     participants = (
-        db.table("podcast_participants")
+        db.table("participants")
         .select("id, display_name, role, joined_at, left_at")
         .eq("session_id", session_id)
         .execute()
@@ -236,7 +241,7 @@ class CompositeStatusResponse(BaseModel):
 
 def _owner_only(db, session_id: str, user_id: str) -> None:
     session = (
-        db.table("podcast_sessions")
+        db.table("sessions")
         .select("owner_id")
         .eq("id", session_id)
         .single()
@@ -250,7 +255,7 @@ def _owner_only(db, session_id: str, user_id: str) -> None:
 
 def _composite_row(db, session_id: str):
     r = (
-        db.table("podcast_session_composites")
+        db.table("session_composites")
         .select("*")
         .eq("session_id", session_id)
         .maybe_single()
@@ -261,7 +266,7 @@ def _composite_row(db, session_id: str):
 
 def _count_recordings(db, session_id: str) -> tuple[int, int]:
     all_rec = (
-        db.table("podcast_recordings")
+        db.table("recordings")
         .select("id, status", count="exact")
         .eq("session_id", session_id)
         .execute()
@@ -336,7 +341,7 @@ async def render_composite(
 
     now = {"updated_at": None}  # placeholder, Postgres default on insert
     if existing:
-        db.table("podcast_session_composites").update(
+        db.table("session_composites").update(
             {
                 "status": "pending",
                 "error_message": None,
@@ -345,7 +350,7 @@ async def render_composite(
             }
         ).eq("session_id", session_id).execute()
     else:
-        db.table("podcast_session_composites").insert(
+        db.table("session_composites").insert(
             {
                 "id": str(uuid4()),
                 "session_id": session_id,
