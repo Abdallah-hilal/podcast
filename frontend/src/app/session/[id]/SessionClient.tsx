@@ -35,7 +35,12 @@ const getRecordingSupportServer = (): null => null;
 
 export default function SessionClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
-  const supabase = createClient();
+  // Lazy init via useState so the client ref is stable across renders.
+  // createClient() returns a NEW instance every call; without this,
+  // the useEffect below would re-fire every render once we started calling
+  // more than one supabase method per mount (magic-link anon signin exposed
+  // this — pre-change the effect bailed via router.push before looping).
+  const [supabase] = useState(createClient);
 
   const [joinInfo, setJoinInfo] = useState<JoinSessionResponse | null>(null);
   const [localOnly, setLocalOnly] = useState(false);
