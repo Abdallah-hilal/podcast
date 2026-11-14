@@ -34,6 +34,12 @@ interface Props {
   /** Locks the mic/camera toggles while a recording is live — toggling off
    *  mid-recording ends the underlying track and silently cuts the file. */
   lockDeviceToggles?: boolean;
+  /** Opens a Save-As picker; on pick the pipeline swaps its local-save file.
+   *  Omit on browsers without File System Access API support — the button
+   *  is hidden entirely. */
+  onChangeLocalSave?: () => void;
+  /** Filename currently teed to; null when no local copy is being written. */
+  localSaveFilename?: string | null;
 }
 
 export function ControlBar({
@@ -44,6 +50,8 @@ export function ControlBar({
   onLeave,
   canRecord = true,
   lockDeviceToggles = false,
+  onChangeLocalSave,
+  localSaveFilename,
 }: Props) {
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
@@ -105,6 +113,16 @@ export function ControlBar({
         </button>
       )}
 
+      {onChangeLocalSave && (
+        <>
+          <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
+          <LocalSaveButton
+            onClick={onChangeLocalSave}
+            filename={localSaveFilename ?? null}
+          />
+        </>
+      )}
+
       <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 
       <button
@@ -115,6 +133,40 @@ export function ControlBar({
         <PhoneOffIcon />
       </button>
     </div>
+  );
+}
+
+function LocalSaveButton({
+  onClick,
+  filename,
+}: {
+  onClick: () => void;
+  filename: string | null;
+}) {
+  // Truncate long names so the control bar stays legible. Keep the extension
+  // visible — people recognise their own file by its ".webm" tail.
+  const display = filename
+    ? filename.length > 24
+      ? filename.slice(0, 10) + "…" + filename.slice(-10)
+      : filename
+    : "Save locally";
+  return (
+    <button
+      onClick={onClick}
+      title={
+        filename
+          ? `Saving locally to "${filename}". Click to pick a different file.`
+          : "Pick a file to save a local copy of this recording."
+      }
+      className="press flex items-center gap-2 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold ring-1 ring-white/10 max-w-[200px]"
+    >
+      <svg aria-hidden className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+        <polyline points="17 21 17 13 7 13 7 21" />
+        <polyline points="7 3 7 8 15 8" />
+      </svg>
+      <span className="truncate tracking-tight">{display}</span>
+    </button>
   );
 }
 

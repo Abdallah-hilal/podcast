@@ -199,6 +199,77 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     router.push("/");
   }, [router]);
 
+  // Local-save filename the UI shows + the handler for "Change save location".
+  // Seed from PreJoin's choice, keep in sync with pipeline.swapLocalFile().
+  const [localSaveFilename, setLocalSaveFilename] = useState<string | null>(
+    preChoice?.localFileHandle?.name ?? null,
+  );
+  // Kept in sync in case the PreJoin choice changes (shouldn't after mount, but
+  // this covers remount scenarios).
+  useEffect(() => {
+    setLocalSaveFilename(
+      pipelineRef.current.localSaveFilename ??
+        preChoice?.localFileHandle?.name ??
+        null,
+    );
+  }, [preChoice]);
+
+  const handleChangeLocalSave = useCallback(async () => {
+    type FsWin = Window & {
+      showSaveFilePicker?: (opts?: {
+        suggestedName?: string;
+        types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+      }) => Promise<FileSystemFileHandle>;
+    };
+    const fsWin = window as FsWin;
+    if (!fsWin.showSaveFilePicker) {
+      setError(
+        "This browser can't let you pick a local file. Use Chrome or Edge for Save-locally.",
+      );
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    const mime =
+      typeof MediaRecorder !== "undefined" &&
+      MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : "video/mp4";
+    const ext = mime === "video/webm" ? "webm" : "mp4";
+    const safeTitle = (sessionTitle || "recording")
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+      .slice(0, 40) || "recording";
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await fsWin.showSaveFilePicker({
+        suggestedName: `${safeTitle}-${stamp}.${ext}`,
+        types: [
+          mime === "video/webm"
+            ? { description: "WebM video", accept: { "video/webm": [".webm"] } }
+            : { description: "MP4 video", accept: { "video/mp4": [".mp4"] } },
+        ],
+      });
+    } catch (e) {
+      // User-cancelled: no change.
+      if ((e as { name?: string })?.name === "AbortError") return;
+      console.warn("Change-location picker failed:", e);
+      return;
+    }
+    try {
+      await pipelineRef.current.swapLocalFile(handle);
+      setLocalSaveFilename(handle.name);
+    } catch (e) {
+      console.error("swapLocalFile failed:", e);
+      setError(
+        e instanceof Error
+          ? `Couldn't open ${handle.name}: ${e.message}`
+          : "Couldn't open the file you picked",
+      );
+    }
+  }, [sessionTitle]);
+
   // Warn the user if they try to close the tab while the pipeline hasn't
   // settled — OPFS still has the chunks, but closing mid-upload means the
   // final file never finalizes until they revisit (and we don't have a
@@ -315,6 +386,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
+          onChangeLocalSave={handleChangeLocalSave}
+          localSaveFilename={localSaveFilename}
         />
       </div>
     );
@@ -370,6 +443,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
+          onChangeLocalSave={handleChangeLocalSave}
+          localSaveFilename={localSaveFilename}
         />
       </div>
       <RoomAudioRenderer />
@@ -389,12 +464,16 @@ function RoomRecordingControls({
   onStartRecording,
   onStop,
   onLeave,
+  onChangeLocalSave,
+  localSaveFilename,
 }: {
   recState: PipelineState;
   elapsedMs: number;
   onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
   onStop: () => void;
   onLeave: () => void;
+  onChangeLocalSave?: () => void;
+  localSaveFilename?: string | null;
 }) {
   const { buildStream, isReady } = useRecordingStream();
   const handleRecord = useCallback(() => {
@@ -411,6 +490,8 @@ function RoomRecordingControls({
       onLeave={onLeave}
       canRecord={isReady}
       lockDeviceToggles={recState === "recording"}
+      onChangeLocalSave={onChangeLocalSave}
+      localSaveFilename={localSaveFilename}
     />
   );
 }
@@ -426,6 +507,8 @@ function LocalControlBar({
   onStartRecording,
   onStop,
   onLeave,
+  onChangeLocalSave,
+  localSaveFilename,
 }: {
   recState: PipelineState;
   elapsedMs: number;
@@ -433,6 +516,8 @@ function LocalControlBar({
   onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
   onStop: () => void;
   onLeave: () => void;
+  onChangeLocalSave?: () => void;
+  localSaveFilename?: string | null;
 }) {
   const isRecording = recState === "recording";
   const isBusy = recState === "stopping" || recState === "uploading";
@@ -481,6 +566,30 @@ function LocalControlBar({
               : recState === "complete"
                 ? "Record again"
                 : "Record"}
+          </span>
+        </button>
+      )}
+      {onChangeLocalSave && (
+        <button
+          onClick={onChangeLocalSave}
+          title={
+            localSaveFilename
+              ? `Saving locally to "${localSaveFilename}". Click to pick a different file.`
+              : "Pick a file to save a local copy."
+          }
+          className="press flex items-center gap-2 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold ring-1 ring-white/10 max-w-[200px]"
+        >
+          <svg aria-hidden className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+          <span className="truncate tracking-tight">
+            {localSaveFilename
+              ? localSaveFilename.length > 24
+                ? localSaveFilename.slice(0, 10) + "…" + localSaveFilename.slice(-10)
+                : localSaveFilename
+              : "Save locally"}
           </span>
         </button>
       )}

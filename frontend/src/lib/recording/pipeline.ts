@@ -50,7 +50,18 @@ export class RecordingPipeline {
   // Independent failure: a stream.write() error stays logged; it never fails
   // the chunk's cloud path.
   private localWriter: FileSystemWritableFileStream | null = null;
+  private localFileHandle: FileSystemFileHandle | null = null;
   private localChunkError: string | null = null;
+
+  /** Filename of the currently-chosen local-save file, or null if there isn't one. */
+  get localSaveFilename(): string | null {
+    return this.localFileHandle?.name ?? null;
+  }
+
+  /** True while a writable stream is open and accepting chunks. */
+  get isLocalSaveActive(): boolean {
+    return this.localWriter !== null;
+  }
 
   get state(): PipelineState {
     return this._state;
@@ -65,6 +76,114 @@ export class RecordingPipeline {
     this.onStateChange = cb;
   }
 
+  /**
+   * Swap (or install, or clear) the local-save target at any point in the
+   * pipeline's lifetime:
+   *   - BEFORE start(): stashes the handle; start() picks it up and opens the
+   *     writer.
+   *   - DURING recording: opens the new file, truncates it, replays every
+   *     chunk already in OPFS so the new file is a complete recording from
+   *     frame 0, then installs it as the live write target. The old file is
+   *     left on disk with whatever bytes it already held.
+   *   - AFTER stop() (while still "complete"): opens the new file and dumps
+   *     everything in OPFS to it. The user walks away with a second copy in
+   *     the location they just picked.
+   *   - Passing null: clears the save target. If actively recording, any
+   *     open writer is closed; no further chunks tee to disk.
+   *
+   * Never fails loudly — the cloud upload path is independent. A swap
+   * failure throws so the caller can surface it, but the pipeline state
+   * before the swap is preserved.
+   */
+  async swapLocalFile(newHandle: FileSystemFileHandle | null): Promise<void> {
+    // Pre-recording: just stash. start() will open the writer when it runs.
+    if (
+      this._state === "idle" ||
+      this._state === "complete" ||
+      this._state === "error"
+    ) {
+      // If we're in a terminal state and the user wants a copy of the already-
+      // recorded chunks, open a new file now and dump OPFS into it.
+      if (
+        newHandle &&
+        this._state === "complete" &&
+        (await this.store.getChunkCount()) > 0
+      ) {
+        const w = await newHandle.createWritable({ keepExistingData: false });
+        try {
+          const all = await this.store.readChunkRange(
+            0,
+            await this.store.getChunkCount(),
+          );
+          await w.write(all);
+          await w.close();
+          this.localFileHandle = newHandle;
+          this.localChunkError = null;
+        } catch (e) {
+          await w.close().catch(() => {});
+          throw e;
+        }
+        return;
+      }
+      this.localFileHandle = newHandle;
+      return;
+    }
+
+    // Clearing mid-flight.
+    if (!newHandle) {
+      const old = this.localWriter;
+      this.localWriter = null;
+      this.localFileHandle = null;
+      if (old) await old.close().catch(() => {});
+      return;
+    }
+
+    // Active swap during recording / stopping / uploading. Open the new
+    // writer first so a bad handle doesn't orphan the old one before we
+    // know the new one is viable.
+    const oldWriter = this.localWriter;
+    this.localWriter = null; // pause tee while we rebuild
+
+    let newWriter: FileSystemWritableFileStream;
+    try {
+      newWriter = await newHandle.createWritable({ keepExistingData: false });
+    } catch (e) {
+      // Give the old writer back; nothing was changed.
+      this.localWriter = oldWriter;
+      throw e;
+    }
+
+    try {
+      // Replay what's on disk in OPFS. Use the physical count rather than
+      // `this.chunksRecorded` because that counter is bumped before OPFS
+      // write actually completes — getChunkCount reflects what's safely
+      // on disk.
+      const n = await this.store.getChunkCount();
+      if (n > 0) {
+        const combined = await this.store.readChunkRange(0, n);
+        await newWriter.write(combined);
+      }
+    } catch (e) {
+      // Replay failed — hand the old writer back so future chunks keep
+      // teeing somewhere, and give the half-written new file a close.
+      this.localWriter = oldWriter;
+      await newWriter.close().catch(() => {});
+      throw e;
+    }
+
+    this.localWriter = newWriter;
+    this.localFileHandle = newHandle;
+    this.localChunkError = null;
+
+    // Close the old writer in the background — a failure to flush the file
+    // the user is leaving behind isn't worth blocking on.
+    if (oldWriter) {
+      void oldWriter.close().catch(() => {
+        /* best-effort flush */
+      });
+    }
+  }
+
   /** Clear per-recording state so a second take can reuse this instance. */
   private reset(): void {
     // The local writer is a resource — close it (fire-and-forget) before
@@ -75,6 +194,7 @@ export class RecordingPipeline {
       });
       this.localWriter = null;
     }
+    this.localFileHandle = null;
     this.localChunkError = null;
     this.recorder = null;
     this.stream = null;
@@ -132,17 +252,19 @@ export class RecordingPipeline {
     this.stream = stream;
     this.ownsStream = opts?.ownsStream ?? false;
 
-    // Open the local-save writer BEFORE the recorder starts so if the file
-    // handle is stale (page was backgrounded long enough for the browser to
-    // revoke the grant, etc.) we surface it as a start-time error rather
-    // than losing the first few chunks mid-recording.
-    if (opts?.localFileHandle) {
+    // Prefer the handle passed in explicitly at start(), but fall back to one
+    // already stashed via swapLocalFile() — so a user who changed their mind
+    // after PreJoin still gets the file they picked.
+    const handleToOpen = opts?.localFileHandle ?? this.localFileHandle;
+    if (handleToOpen) {
       try {
-        this.localWriter = await opts.localFileHandle.createWritable({
+        this.localWriter = await handleToOpen.createWritable({
           keepExistingData: false,
         });
+        this.localFileHandle = handleToOpen;
       } catch (e) {
         this.localWriter = null;
+        this.localFileHandle = null;
         this.localChunkError = e instanceof Error ? e.message : String(e);
         console.warn("Local-save writer could not be opened:", e);
       }
@@ -277,6 +399,8 @@ export class RecordingPipeline {
     // Close the local-save file now that MediaRecorder has emitted its final
     // chunk and handleChunk has drained it. close() flushes any buffered
     // bytes to disk; without it the tail of the recording stays in memory.
+    // Keep the FileHandle around so the UI can still show the filename after
+    // recording completes.
     if (this.localWriter) {
       try {
         await this.localWriter.close();
