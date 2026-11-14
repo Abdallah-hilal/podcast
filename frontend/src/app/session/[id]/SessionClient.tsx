@@ -30,7 +30,16 @@ import type {
 } from "@/types";
 
 const SUBSCRIBE_NOOP = () => () => {};
-const getRecordingSupportClient = (): RecordingSupport => checkRecordingSupport();
+// Cache the probe result for the lifetime of the tab. useSyncExternalStore
+// uses === identity to detect changes, so returning a fresh object on every
+// call looks like a continuous state change and loops the component.
+// RecordingSupport is a function of the browser build; it never changes
+// once the page is loaded.
+let cachedRecordingSupport: RecordingSupport | null = null;
+const getRecordingSupportClient = (): RecordingSupport => {
+  if (!cachedRecordingSupport) cachedRecordingSupport = checkRecordingSupport();
+  return cachedRecordingSupport;
+};
 const getRecordingSupportServer = (): null => null;
 
 export default function SessionClient({ sessionId }: { sessionId: string }) {
