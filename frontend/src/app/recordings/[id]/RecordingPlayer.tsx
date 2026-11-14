@@ -61,15 +61,16 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
 
       try {
         const { data } = await supabase
-          .from("podcast_recordings")
+          .schema("podcast")
+          .from("recordings")
           .select(
-            "podcast_participants!inner(podcast_sessions!inner(title))"
+            "participants!inner(sessions!inner(title))"
           )
           .eq("id", recordingId)
           .single();
         if (mounted && data) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const t = (data as any)?.podcast_participants?.podcast_sessions?.title;
+          const t = (data as any)?.participants?.sessions?.title;
           if (t) setTitle(t);
         }
 

@@ -28,7 +28,8 @@ export default function HomePage() {
       setToken(session.access_token);
 
       supabase
-        .from("podcast_sessions")
+        .schema("podcast")
+        .from("sessions")
         .select("id, title, status")
         .order("created_at", { ascending: false })
         .then(({ data }) => {

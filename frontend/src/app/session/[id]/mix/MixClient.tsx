@@ -66,7 +66,8 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
       token = session.access_token;
 
       const { data } = await supabase
-        .from("podcast_sessions")
+        .schema("podcast")
+        .from("sessions")
         .select("title")
         .eq("id", sessionId)
         .single();

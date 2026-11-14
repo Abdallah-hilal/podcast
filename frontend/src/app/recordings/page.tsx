@@ -16,9 +16,9 @@ type Row = {
   created_at: string;
   mime_type: string | null;
   transcript_status: string | null;
-  podcast_participants: {
+  participants: {
     role: "host" | "guest";
-    podcast_sessions: { id: string; title: string };
+    sessions: { id: string; title: string };
   };
 };
 
@@ -87,10 +87,11 @@ export default function RecordingsPage() {
       if (mounted) setToken(session.access_token);
 
       const { data, error } = await supabase
-        .from("podcast_recordings")
+        .schema("podcast")
+        .from("recordings")
         .select(
           "id, status, total_bytes, created_at, mime_type, transcript_status, " +
-          "podcast_participants!inner(role, podcast_sessions!inner(id, title))"
+          "participants!inner(role, sessions!inner(id, title))"
         )
         .order("created_at", { ascending: false });
 
@@ -169,8 +170,8 @@ export default function RecordingsPage() {
         {rows && rows.length > 0 && (
           <ul className="space-y-2">
             {rows.map((r) => {
-              const title = r.podcast_participants?.podcast_sessions?.title ?? "Untitled";
-              const role = r.podcast_participants?.role ?? "—";
+              const title = r.participants?.sessions?.title ?? "Untitled";
+              const role = r.participants?.role ?? "—";
               const clickable = r.status === "ready";
               const statusInfo = STATUS_CLASS[r.status] ?? { cls: "bg-cream-200 text-ink-muted", label: r.status };
               const ts = r.transcript_status;
