@@ -53,6 +53,12 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState("");
   const [prejoined, setPrejoined] = useState(false);
   const [preChoice, setPreChoice] = useState<PreJoinChoice | null>(null);
+  // Name of the file the local-save tee is targeting right now. Seeded in
+  // PreJoin, updated by swapLocalFile() and by the stop-time auto-download
+  // path — needs to be declared before handleStopRecording closes over it.
+  const [localSaveFilename, setLocalSaveFilename] = useState<string | null>(
+    null,
+  );
   // Probe MediaRecorder on client mount so the Join button can say "sorry,
   // your browser can't record" BEFORE the user tries. `useSyncExternalStore`
   // keeps SSR rendering with `null` (server snapshot) and the client first
@@ -190,22 +196,56 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     } catch (err) {
       console.error("Failed to stop recording:", err);
     }
-  }, []);
+    // If the user never picked a local file (toggle was off or they
+    // cancelled the Save-As dialog), hand them the raw per-side recording
+    // automatically. The browser's Downloads folder is "guaranteed save"
+    // without requiring another user gesture mid-flow. If they DID pick a
+    // file, their copy is already on disk — skip the auto-download so we
+    // don't create a duplicate.
+    try {
+      if (!pipelineRef.current.localSaveFilename) {
+        const blob = await pipelineRef.current.assembleFullBlob();
+        if (blob) {
+          const ext = pipelineRef.current.localSaveExtension();
+          const safeTitle = (sessionTitle || "recording")
+            .replace(/[^\w\s-]/g, "")
+            .trim()
+            .replace(/\s+/g, "-")
+            .toLowerCase()
+            .slice(0, 40) || "recording";
+          const stamp = new Date()
+            .toISOString()
+            .slice(0, 16)
+            .replace(/[:T]/g, "-");
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${safeTitle}-${stamp}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          // Give the browser a moment to start the download before revoking.
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          // Record what we handed off so the UI can show it as the current
+          // save target, even though it went to the Downloads folder.
+          setLocalSaveFilename(a.download);
+        }
+      }
+    } catch (err) {
+      console.warn("Auto-download of local copy failed:", err);
+    }
+  }, [sessionTitle]);
 
   const handleLeave = useCallback(async () => {
+    // Route Leave-while-recording through the same stop path so the
+    // auto-download fires once (and only once) per recording.
     if (pipelineRef.current.state === "recording") {
-      await pipelineRef.current.stop();
+      await handleStopRecording();
     }
     router.push("/");
-  }, [router]);
+  }, [router, handleStopRecording]);
 
-  // Local-save filename the UI shows + the handler for "Change save location".
-  // Seed from PreJoin's choice, keep in sync with pipeline.swapLocalFile().
-  const [localSaveFilename, setLocalSaveFilename] = useState<string | null>(
-    preChoice?.localFileHandle?.name ?? null,
-  );
-  // Kept in sync in case the PreJoin choice changes (shouldn't after mount, but
-  // this covers remount scenarios).
+  // Keep the filename in sync with the PreJoin choice when it changes.
   useEffect(() => {
     setLocalSaveFilename(
       pipelineRef.current.localSaveFilename ??

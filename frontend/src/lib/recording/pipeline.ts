@@ -63,6 +63,33 @@ export class RecordingPipeline {
     return this.localWriter !== null;
   }
 
+  /**
+   * Assemble every chunk written to OPFS into a single Blob — the raw per-
+   * side recording the user would have gotten if they'd picked a save
+   * location. Used by the auto-download-at-stop path in the UI. Returns
+   * null if nothing was recorded.
+   */
+  async assembleFullBlob(): Promise<Blob | null> {
+    const n = await this.store.getChunkCount();
+    if (n === 0) return null;
+    const combined = await this.store.readChunkRange(0, n);
+    // MediaRecorder's mimeType includes codecs ("video/webm;codecs=vp9,opus");
+    // use the container part only for the Blob type so downstream players
+    // auto-detect properly. Falls back to the first supported container.
+    const mimeType = getSupportedMimeType() ?? "video/webm";
+    const container = mimeType.split(";")[0];
+    return new Blob([combined], { type: container });
+  }
+
+  /**
+   * Best-container extension for the current browser's recorder. Lets the
+   * UI pick the right suffix for an auto-download filename.
+   */
+  localSaveExtension(): string {
+    const mimeType = getSupportedMimeType() ?? "video/webm";
+    return mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+  }
+
   get state(): PipelineState {
     return this._state;
   }
