@@ -449,13 +449,15 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       }
     : false;
 
-  const audioOpt: boolean | { deviceId: { exact: string }; channelCount?: number } =
-    preChoice?.micOn
-      ? {
-          ...(preChoice.micId ? { deviceId: { exact: preChoice.micId } } : {}),
-          channelCount: 2,
-        }
-      : false;
+  const audioOpt: boolean | {
+    deviceId?: { exact: string };
+    channelCount?: number;
+  } = preChoice?.micOn
+    ? {
+        ...(preChoice.micId ? { deviceId: { exact: preChoice.micId } } : {}),
+        channelCount: 2,
+      }
+    : false;
 
   return (
     <LiveKitRoom
