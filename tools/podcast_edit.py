@@ -454,7 +454,18 @@ def timed_words(p: Person, t: Take, seg: dict) -> list[tuple[float, float, str]]
     the moments this person is actually speaking inside the segment, so a
     segment that spans the other person's turn doesn't caption over them."""
     if seg.get("words"):
-        return [(t.offset + w["s"], t.offset + w["e"], w["w"].strip()) for w in seg["words"] if w["w"].strip()]
+        out = []
+        for w in seg["words"]:
+            if not w["w"].strip():
+                continue
+            s, e = t.offset + w["s"], t.offset + w["e"]
+            # Whisper stretches the first word after a pause back over the
+            # silence; start it where this person's voice actually resumes.
+            f, last = int(s / FRAME), min(int(e / FRAME), len(p.speaking) - 1)
+            while f < last and not p.speaking[f]:
+                f += 1
+            out.append((max(s, f * FRAME), e, w["w"].strip()))
+        return out
     words = seg["text"].split()
     if not words:
         return []
@@ -499,6 +510,10 @@ def write_captions(people: list[Person], keep, out_dir: Path) -> list[tuple[floa
                         continue
                     lines.append((a, b, p.name, text))
     lines.sort()
+    for i in range(len(lines) - 1):  # one caption on screen at a time
+        a, b, name, text = lines[i]
+        if b > lines[i + 1][0]:
+            lines[i] = (a, max(a + 0.2, lines[i + 1][0]), name, text)
     with open(out_dir / "episode.srt", "w") as f:
         for i, (a, b, _, text) in enumerate(lines, 1):
             f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{text}\n\n")
