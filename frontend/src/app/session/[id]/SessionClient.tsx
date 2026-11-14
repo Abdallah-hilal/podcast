@@ -486,18 +486,25 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  // Ask LiveKit to capture at 4K — the local MediaStreamTrack feeds BOTH the
-  // live call and the recorder, so capping it at LiveKit's default 720p would
-  // silently cap the recording too. Simulcast still downscales what's sent to
-  // other peers; the recording reads from the raw source track. Cameras that
-  // can't do 4K negotiate down to their native max (laptop webcams usually
-  // land on 1080p or 720p — fine).
+  // Capture resolution: desktop Chrome/Edge handle 4K; iOS Safari and most
+  // mobile browsers throw "The operation failed for an unknown transient
+  // reason" at 4K + stereo + LiveKit together. Pick the safe ceiling by UA
+  // so a Pocket 3 on a MacBook still gets 4K while an iPhone recording
+  // lands on its native 1080p.
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isMobileOrSafari =
+    /iPhone|iPad|iPod|Android/i.test(ua) ||
+    (/Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|Edg/i.test(ua));
+  const captureResolution = isMobileOrSafari
+    ? VideoPresets.h1080.resolution
+    : VideoPresets.h2160.resolution;
+
   const videoOpt: boolean | VideoCaptureOptions = preChoice?.camOn
     ? {
         ...(preChoice.cameraId
           ? { deviceId: { exact: preChoice.cameraId } }
           : {}),
-        resolution: VideoPresets.h2160.resolution,
+        resolution: captureResolution,
       }
     : false;
 
@@ -519,11 +526,18 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       video={videoOpt}
       audio={audioOpt}
       onError={(e) => {
-        // Transient disconnects and device-permission errors shouldn't blow
-        // the whole UI away. Only fatal connection errors do.
+        // Transient disconnects don't deserve a fatal error screen. But
+        // capture-side failures (getUserMedia, codec, "operation failed for
+        // an unknown transient reason") DO — the call can't proceed without
+        // media, and a silent failure leaves the user staring at an empty
+        // tile wondering what's wrong.
         console.warn("LiveKit error:", e);
-        if (/connect|signal|token/i.test(e.message)) {
-          setError(e.message);
+        const msg = e.message || "";
+        const fatal =
+          /connect|signal|token/i.test(msg) ||
+          /operation failed|getUserMedia|NotAllowed|OverConstrained|NotReadable|NotFound/i.test(msg);
+        if (fatal) {
+          setError(msg || "Call couldn't start");
         }
       }}
     >
