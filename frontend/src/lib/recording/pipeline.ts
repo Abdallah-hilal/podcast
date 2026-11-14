@@ -44,6 +44,13 @@ export class RecordingPipeline {
     throw new Error("Pipeline not started");
   };
   private onStateChange?: (state: PipelineState) => void;
+  // Optional local file writer. When set (PreJoin's "Save a local copy to my
+  // device" was ticked and the user picked a file), every MediaRecorder chunk
+  // is also written to this stream, in parallel with OPFS + cloud upload.
+  // Independent failure: a stream.write() error stays logged; it never fails
+  // the chunk's cloud path.
+  private localWriter: FileSystemWritableFileStream | null = null;
+  private localChunkError: string | null = null;
 
   get state(): PipelineState {
     return this._state;
@@ -60,6 +67,15 @@ export class RecordingPipeline {
 
   /** Clear per-recording state so a second take can reuse this instance. */
   private reset(): void {
+    // The local writer is a resource — close it (fire-and-forget) before
+    // dropping the reference so the OS flushes any buffered bytes.
+    if (this.localWriter) {
+      void this.localWriter.close().catch(() => {
+        /* best-effort flush; nothing we can do if the handle is gone */
+      });
+      this.localWriter = null;
+    }
+    this.localChunkError = null;
     this.recorder = null;
     this.stream = null;
     this.ownsStream = false;
@@ -90,7 +106,16 @@ export class RecordingPipeline {
     sessionId: string,
     getToken: TokenGetter,
     stream: MediaStream,
-    opts?: { ownsStream?: boolean }
+    opts?: {
+      ownsStream?: boolean;
+      /**
+       * If provided, each chunk is written to this file in parallel with
+       * OPFS and the cloud upload. The file ends up being the raw recorder
+       * container (WebM on Chrome/Edge/Firefox, MP4 on Safari) of THIS
+       * side's stream — not the server-side composite.
+       */
+      localFileHandle?: FileSystemFileHandle | null;
+    }
   ): Promise<void> {
     // Allow restarting after a finished or failed run — otherwise "Record
     // again" in the UI throws because the pipeline is still in a terminal
@@ -106,6 +131,22 @@ export class RecordingPipeline {
     this.getToken = getToken;
     this.stream = stream;
     this.ownsStream = opts?.ownsStream ?? false;
+
+    // Open the local-save writer BEFORE the recorder starts so if the file
+    // handle is stale (page was backgrounded long enough for the browser to
+    // revoke the grant, etc.) we surface it as a start-time error rather
+    // than losing the first few chunks mid-recording.
+    if (opts?.localFileHandle) {
+      try {
+        this.localWriter = await opts.localFileHandle.createWritable({
+          keepExistingData: false,
+        });
+      } catch (e) {
+        this.localWriter = null;
+        this.localChunkError = e instanceof Error ? e.message : String(e);
+        console.warn("Local-save writer could not be opened:", e);
+      }
+    }
 
     const settings = getStreamSettings(this.stream);
     const mimeType = getSupportedMimeType();
@@ -145,6 +186,25 @@ export class RecordingPipeline {
 
     // Write to OPFS
     await this.store.writeChunk(index, chunk);
+
+    // Tee to the local-save file, if the user picked one in PreJoin. Any
+    // failure here is isolated — never block the cloud path. We stash the
+    // last error on `lastError`-adjacent state so the UI can surface it,
+    // then drop the writer so subsequent chunks don't repeat the failure.
+    if (this.localWriter) {
+      try {
+        await this.localWriter.write(chunk);
+      } catch (e) {
+        this.localChunkError = e instanceof Error ? e.message : String(e);
+        console.warn(`Local-save write failed on chunk ${index}:`, e);
+        try {
+          await this.localWriter.close();
+        } catch {
+          /* already broken */
+        }
+        this.localWriter = null;
+      }
+    }
 
     // Feed to batch manager
     const sealed = this.batchManager.addChunk(index, chunk.size);
@@ -213,6 +273,19 @@ export class RecordingPipeline {
 
     // Stop MediaRecorder — waits for final ondataavailable
     await stopMediaRecorder(this.recorder);
+
+    // Close the local-save file now that MediaRecorder has emitted its final
+    // chunk and handleChunk has drained it. close() flushes any buffered
+    // bytes to disk; without it the tail of the recording stays in memory.
+    if (this.localWriter) {
+      try {
+        await this.localWriter.close();
+      } catch (e) {
+        this.localChunkError = e instanceof Error ? e.message : String(e);
+        console.warn("Local-save close failed:", e);
+      }
+      this.localWriter = null;
+    }
 
     // Seal final batch
     const finalBatch = this.batchManager.sealFinal();

@@ -10,6 +10,45 @@ export interface PreJoinChoice {
   micId: string | undefined;
   camOn: boolean;
   micOn: boolean;
+  /**
+   * If set, the pipeline tees every MediaRecorder chunk to this file in
+   * parallel with OPFS + cloud upload — a hedge against a failed cloud
+   * upload and a way to hand the user a file they chose the location of.
+   * Only possible in browsers that implement the File System Access API
+   * (Chrome / Edge today; not Safari / Firefox).
+   */
+  localFileHandle: FileSystemFileHandle | null;
+}
+
+// `window.showSaveFilePicker` is in lib.dom.d.ts but not every TS config
+// picks it up. Narrow it ourselves so the call sites stay typed.
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+};
+type FileSystemAccessWindow = Window & {
+  showSaveFilePicker?: (
+    opts?: SaveFilePickerOptions,
+  ) => Promise<FileSystemFileHandle>;
+};
+
+function canSaveLocally(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as FileSystemAccessWindow).showSaveFilePicker === "function"
+  );
+}
+
+function suggestedLocalFilename(title: string, mimeType: string): string {
+  const ext = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+  const safeTitle = title
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .toLowerCase()
+    .slice(0, 40) || "recording";
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  return `${safeTitle}-${stamp}.${ext}`;
 }
 
 interface Props {
@@ -37,6 +76,11 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
   const [micOn, setMicOn] = useState(true);
   const [err, setErr] = useState<string>("");
   const [ready, setReady] = useState(false);
+  // Default on when the browser supports it — the user has to opt out, not
+  // opt in. An extra local copy is cheap insurance against cloud failures.
+  const saveLocalSupported = canSaveLocally();
+  const [saveLocal, setSaveLocal] = useState(saveLocalSupported);
+  const [pickerPending, setPickerPending] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -100,7 +144,45 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
     };
   }, [cameraId, camOn]);
 
-  function handleJoin() {
+  async function handleJoin() {
+    let localFileHandle: FileSystemFileHandle | null = null;
+
+    // Prompt for the local-save location BEFORE tearing down the warmup
+    // stream so an accidental Cancel on the picker leaves the preview alive.
+    if (saveLocal && saveLocalSupported) {
+      setPickerPending(true);
+      try {
+        const fsWin = window as FileSystemAccessWindow;
+        if (fsWin.showSaveFilePicker) {
+          // MediaRecorder on Safari emits MP4; everywhere else WebM. The
+          // extension matches the first container the recorder will land in.
+          const mime =
+            typeof MediaRecorder !== "undefined" &&
+            MediaRecorder.isTypeSupported("video/webm")
+              ? "video/webm"
+              : "video/mp4";
+          localFileHandle = await fsWin.showSaveFilePicker({
+            suggestedName: suggestedLocalFilename(title, mime),
+            types: [
+              mime === "video/webm"
+                ? { description: "WebM video", accept: { "video/webm": [".webm"] } }
+                : { description: "MP4 video", accept: { "video/mp4": [".mp4"] } },
+            ],
+          });
+        }
+      } catch (e) {
+        // User-cancelled picker is an AbortError — not a real failure.
+        const name = (e as { name?: string })?.name;
+        if (name !== "AbortError") {
+          console.warn("Local save picker failed:", e);
+        }
+        // Either way, continue without a local file. The toggle stays on so
+        // the next join still asks, in case this was a slip.
+      } finally {
+        setPickerPending(false);
+      }
+    }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -111,6 +193,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
       micId: micId || undefined,
       camOn: !blocked && camOn,
       micOn: !blocked && micOn,
+      localFileHandle,
     });
   }
 
@@ -267,12 +350,40 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
           </div>
         )}
 
+        <div className="space-y-1.5">
+          <label className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl cursor-pointer hover:bg-black/30 transition-colors">
+            <input
+              type="checkbox"
+              checked={saveLocalSupported ? saveLocal : false}
+              onChange={(e) => setSaveLocal(e.target.checked)}
+              disabled={!saveLocalSupported}
+              className="mt-0.5 w-4 h-4 accent-coral-600 cursor-pointer disabled:cursor-not-allowed"
+            />
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-bold text-white">
+                Save a local copy to my device
+              </span>
+              <span className="block text-[11px] text-teal-300/80 mt-0.5">
+                {saveLocalSupported
+                  ? "Pick a file when you join. The recording streams there as it happens, in parallel with the cloud upload — so you still have the file if the upload fails."
+                  : "This browser can't write to a local file you choose. The recording still uploads to the cloud; use Chrome or Edge for the local copy."}
+              </span>
+            </span>
+          </label>
+        </div>
+
         <button
           onClick={handleJoin}
-          disabled={joining || disabled || (!ready && !err)}
+          disabled={joining || disabled || pickerPending || (!ready && !err)}
           className="press w-full py-3.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-coral-600 rounded-xl font-black text-white text-base tracking-tight shadow-lg hover:shadow-xl"
         >
-          {joining ? "Joining…" : disabled ? (disabledReason ?? "Unavailable") : "Join meeting →"}
+          {pickerPending
+            ? "Pick a file…"
+            : joining
+            ? "Joining…"
+            : disabled
+            ? (disabledReason ?? "Unavailable")
+            : "Join meeting →"}
         </button>
       </div>
     </div>

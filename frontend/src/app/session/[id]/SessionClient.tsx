@@ -168,6 +168,10 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       try {
         await pipelineRef.current.start(sessionId, getFreshToken, stream, {
           ownsStream,
+          // PreJoin captured the file handle (null if the user declined or
+          // their browser lacks the File System Access API); the pipeline
+          // tees every chunk to it in parallel with OPFS + cloud upload.
+          localFileHandle: preChoice?.localFileHandle ?? null,
         });
       } catch (err) {
         console.error("Failed to start recording:", err);
@@ -177,7 +181,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         }
       }
     },
-    [sessionId, authed, getFreshToken]
+    [sessionId, authed, getFreshToken, preChoice]
   );
 
   const handleStopRecording = useCallback(async () => {
