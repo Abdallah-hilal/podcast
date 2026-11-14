@@ -12,6 +12,7 @@ import {
   StopIcon,
   PhoneOffIcon,
 } from "./icons";
+import { InCallDeviceSwitcher } from "./InCallDeviceSwitcher";
 
 function fmt(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -80,6 +81,8 @@ export function ControlBar({
         offIcon={<CamOffIcon />}
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}
       />
+
+      <InCallDeviceSwitcher locked={lockDeviceToggles} />
 
       <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 
