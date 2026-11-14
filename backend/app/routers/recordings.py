@@ -139,6 +139,24 @@ async def register_batch(
         session_id, participant_id, recording_id, body.sequence_number
     )
 
+    # Idempotent register: the frontend retries whole-batch registration on
+    # transient failures (TUS network blip, etc.), so a second POST for the
+    # same (recording_id, sequence_number) must return the existing row
+    # instead of hitting the unique-key violation (500).
+    existing = (
+        db.table("recording_batches")
+        .select("id, storage_path")
+        .eq("recording_id", recording_id)
+        .eq("sequence_number", body.sequence_number)
+        .maybe_single()
+        .execute()
+    )
+    if existing and existing.data:
+        return RegisterBatchResponse(
+            batch_id=existing.data["id"],
+            storage_path=existing.data["storage_path"],
+        )
+
     batch_id = str(uuid4())
     db.table("recording_batches").insert(
         {
