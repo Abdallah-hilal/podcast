@@ -351,25 +351,44 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         )}
 
         <div className="space-y-1.5">
-          <label className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl cursor-pointer hover:bg-black/30 transition-colors">
-            <input
-              type="checkbox"
-              checked={saveLocalSupported ? saveLocal : false}
-              onChange={(e) => setSaveLocal(e.target.checked)}
-              disabled={!saveLocalSupported}
-              className="mt-0.5 w-4 h-4 accent-coral-600 cursor-pointer disabled:cursor-not-allowed"
-            />
-            <span className="flex-1 min-w-0">
-              <span className="block text-sm font-bold text-white">
-                Save a local copy to my device
+          {saveLocalSupported ? (
+            <label className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl cursor-pointer hover:bg-black/30 transition-colors">
+              <input
+                type="checkbox"
+                checked={saveLocal}
+                onChange={(e) => setSaveLocal(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-coral-600 cursor-pointer"
+              />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-white">
+                  Save a local copy to my device
+                </span>
+                <span className="block text-[11px] text-teal-300/80 mt-0.5">
+                  Pick a file when you join. The recording streams there as it happens, in parallel with the cloud upload — so you still have the file if the upload fails.
+                </span>
               </span>
-              <span className="block text-[11px] text-teal-300/80 mt-0.5">
-                {saveLocalSupported
-                  ? "Pick a file when you join. The recording streams there as it happens, in parallel with the cloud upload — so you still have the file if the upload fails."
-                  : "This browser can't write to a local file you choose. The recording still uploads to the cloud; use Chrome or Edge for the local copy."}
+            </label>
+          ) : (
+            // Mobile + Safari + Firefox: no File System Access API, so we don't
+            // offer a pre-flight picker. The recording still ends up on disk
+            // via the Web Share / auto-download path at Stop — tell the user
+            // so they don't think they're losing their copy.
+            <div className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl">
+              <svg aria-hidden className="mt-0.5 w-4 h-4 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-white">
+                  You&apos;ll get a download when you stop
+                </span>
+                <span className="block text-[11px] text-teal-300/80 mt-0.5">
+                  This browser can&apos;t let you pick a save location ahead of time, but the finished recording will appear as a Share / Save prompt the moment you tap Stop. The cloud upload runs in parallel either way.
+                </span>
               </span>
-            </span>
-          </label>
+            </div>
+          )}
         </div>
 
         <button
