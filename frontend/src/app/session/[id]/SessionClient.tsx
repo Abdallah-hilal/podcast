@@ -35,12 +35,7 @@ const getRecordingSupportServer = (): null => null;
 
 export default function SessionClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
-  // Lazy init via useState so the client ref is stable across renders.
-  // createClient() returns a NEW instance every call; without this,
-  // the useEffect below would re-fire every render once we started calling
-  // more than one supabase method per mount (magic-link anon signin exposed
-  // this — pre-change the effect bailed via router.push before looping).
-  const [supabase] = useState(createClient);
+  const supabase = createClient();
 
   const [joinInfo, setJoinInfo] = useState<JoinSessionResponse | null>(null);
   const [localOnly, setLocalOnly] = useState(false);
@@ -113,23 +108,15 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     let mounted = true;
 
     async function init() {
-      // Guest flow: an invite link is the credential. If the viewer isn't
-      // signed in, give them an anonymous Supabase user transparently so
-      // they can join, record, and upload without ever seeing a login page.
-      // The host still signs in with email+password via /login.
-      let { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error || !data.session) {
-          if (mounted) {
-            setError(
-              error?.message ??
-                "Couldn't open this session. Ask the host for a fresh invite link.",
-            );
-          }
-          return;
-        }
-        session = data.session;
+        // Guest flow: an invite link is the credential. Hand the viewer off
+        // to /join/:id, which signs them in as an anonymous Supabase user
+        // and bounces back. Host signs in with email+password via /login.
+        router.replace(`/join/${sessionId}`);
+        return;
       }
       setAuthed(true);
 
@@ -156,7 +143,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     return () => {
       mounted = false;
     };
-  }, [sessionId, supabase]);
+  }, [sessionId, supabase, router]);
 
   const getFreshToken = useCallback(async () => {
     const {

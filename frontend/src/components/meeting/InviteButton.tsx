@@ -10,7 +10,9 @@ export function InviteButton({ sessionId }: { sessionId: string }) {
     const origin =
       typeof window !== "undefined" ? window.location.origin : "";
     if (!origin) return;
-    const url = `${origin}/session/${sessionId}`;
+    // /join/:id is the public entry point — unauthed viewers get an
+    // anonymous Supabase user transparently and bounce to /session/:id.
+    const url = `${origin}/join/${sessionId}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
