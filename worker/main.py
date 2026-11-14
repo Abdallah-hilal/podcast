@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -143,31 +144,29 @@ def process_reconstruct(db: Client, job: dict) -> None:
         raise RuntimeError(f"recording {recording_id} has no batches to reconstruct")
 
     log.info("job %s: concatenating %d batches", job["id"], len(batches.data))
-    total = 0
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as out:
-        tmp_path = out.name
-        for batch in batches.data:
-            data = db.storage.from_(BUCKET).download(batch["storage_path"])
-            out.write(data)
-            total += len(data)
-
+    tmpdir = Path(tempfile.mkdtemp(prefix="reconstruct-"))
+    raw_path = tmpdir / "raw.webm"
     try:
-        with open(tmp_path, "rb") as f:
+        with open(raw_path, "wb") as out:
+            for batch in batches.data:
+                out.write(db.storage.from_(BUCKET).download(batch["storage_path"]))
+
+        upload_path, duration = _remux_with_index(raw_path, tmpdir / "indexed.webm")
+        total = upload_path.stat().st_size
+        with open(upload_path, "rb") as f:
             db.storage.from_(BUCKET).upload(
                 final_path,
                 f,
                 {"content-type": "video/webm", "upsert": "true"},
             )
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     db.schema("podcast").table("recordings").update(
         {
             "status": "ready",
             "total_bytes": total,
+            "duration_seconds": duration,
             "updated_at": _now_iso(),
             "transcript_status": "pending",
         }
@@ -188,9 +187,57 @@ def process_reconstruct(db: Client, job: dict) -> None:
     ).execute()
 
     log.info(
-        "job %s: done — recording %s ready (%d bytes), transcribe enqueued",
-        job["id"], recording_id, total,
+        "job %s: done — recording %s ready (%d bytes, %ss), transcribe enqueued",
+        job["id"], recording_id, total, duration,
     )
+
+
+def _probe_duration(path: Path) -> float | None:
+    ffprobe = str(Path(_ffmpeg_bin()).with_name("ffprobe"))
+    if not Path(ffprobe).exists():
+        ffprobe = shutil.which("ffprobe") or "ffprobe"
+    r = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    try:
+        return round(float(r.stdout.strip()), 3)
+    except ValueError:
+        return None
+
+
+def _video_codec(path: Path) -> str | None:
+    ffprobe = str(Path(_ffmpeg_bin()).with_name("ffprobe"))
+    if not Path(ffprobe).exists():
+        ffprobe = shutil.which("ffprobe") or "ffprobe"
+    r = subprocess.run(
+        [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=codec_name", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    return r.stdout.strip() or None
+
+
+def _remux_with_index(src: Path, dst: Path) -> tuple[Path, float | None]:
+    """MediaRecorder WebM has no duration and no cues, so players can't seek
+    and most editors refuse to import it, and its audio can have timestamp
+    gaps (mic muted) that desync anything ignoring timestamps. Copy the video,
+    re-encode the audio with gaps filled by silence, and write a proper index.
+    Falls back to a plain copy, then to the raw file."""
+    if _video_codec(src) not in ("vp8", "vp9", "av1"):
+        return src, _probe_duration(src)
+    base = [_ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-fflags", "+genpts", "-i", str(src)]
+    attempts = [
+        ["-map", "0:v?", "-map", "0:a?", "-c:v", "copy",
+         "-af", "aresample=async=1:first_pts=0", "-c:a", "libopus", "-b:a", "192k"],
+        ["-map", "0", "-c", "copy"],
+    ]
+    for extra in attempts:
+        r = subprocess.run(base + extra + [str(dst)], capture_output=True, text=True)
+        if r.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            return dst, _probe_duration(dst)
+        log.warning("remux attempt failed (rc=%s): %s", r.returncode, r.stderr[-500:])
+    return src, _probe_duration(src)
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +383,7 @@ def process_composite(db: Client, job: dict) -> None:
     # Collect ready recordings for this session, oldest first — stable ordering.
     recordings = (
         db.schema("podcast").table("recordings")
-        .select("id, final_storage_path, created_at")
+        .select("id, participant_id, final_storage_path, created_at")
         .eq("session_id", session_id)
         .eq("status", "ready")
         .order("created_at")
@@ -346,22 +393,31 @@ def process_composite(db: Client, job: dict) -> None:
         raise RuntimeError(f"no ready recordings for session {session_id}")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="composite-"))
-    local_inputs: list[Path] = []
+    takes: list[Take] = []
     try:
+        t0 = min(_parse_ts(r["created_at"]) for r in recordings.data)
         for i, r in enumerate(recordings.data):
             fp = r.get("final_storage_path")
             if not fp:
                 continue
-            data = db.storage.from_(BUCKET).download(fp)
-            path = tmpdir / f"input-{i:02d}.webm"
-            path.write_bytes(data)
-            local_inputs.append(path)
+            raw = tmpdir / f"input-{i:02d}.webm"
+            raw.write_bytes(db.storage.from_(BUCKET).download(fp))
+            path, duration = _remux_with_index(raw, tmpdir / f"input-{i:02d}-indexed.webm")
+            if not duration:
+                log.warning("skipping recording %s: unreadable duration", r["id"])
+                continue
+            takes.append(Take(
+                path=path,
+                participant_id=r["participant_id"],
+                offset=(_parse_ts(r["created_at"]) - t0).total_seconds(),
+                duration=duration,
+            ))
 
-        if not local_inputs:
+        if not takes:
             raise RuntimeError(f"session {session_id} has no downloadable recordings")
 
         out_path = tmpdir / "composite.webm"
-        _render_composite(local_inputs, out_path)
+        _render_composite(takes, out_path)
         total_bytes = out_path.stat().st_size
 
         final_path = f"sessions/{session_id}/composite/final.webm"
@@ -387,49 +443,87 @@ def process_composite(db: Client, job: dict) -> None:
     db.schema("podcast").table("processing_jobs").update(
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
-    log.info("job %s: composite ready for session %s (%d inputs)", job["id"], session_id, len(local_inputs))
+    log.info("job %s: composite ready for session %s (%d takes)", job["id"], session_id, len(takes))
 
 
-def _render_composite(inputs: list[Path], out: Path) -> None:
-    """Render N input WebMs side-by-side at COMPOSITE_WIDTH x COMPOSITE_HEIGHT."""
-    n = len(inputs)
-    w = COMPOSITE_WIDTH
-    h = COMPOSITE_HEIGHT
+@dataclass
+class Take:
+    path: Path
+    participant_id: str
+    offset: float  # seconds after the session's first Record press
+    duration: float
+
+
+def _parse_ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _render_composite(takes: list[Take], out: Path) -> None:
+    """One tile per participant, every take placed on a shared timeline.
+
+    Each side presses Record on its own, so recordings start at different
+    moments; `offset` (from the server-side created_at) lines them up. A
+    participant with several takes ("Record again", rejoin) keeps one tile.
+    """
+    w, h = COMPOSITE_WIDTH, COMPOSITE_HEIGHT
+    participants = list(dict.fromkeys(t.participant_id for t in takes))
+    n = len(participants)
+    total = max(t.offset + t.duration for t in takes)
     if n == 1:
-        # Single input — scale and pad to the target size, keeping aspect.
-        cmd = [
-            _ffmpeg_bin(), "-y",
-            "-i", str(inputs[0]),
-            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
-            "-c:v", "libvpx-vp9", "-b:v", "2M",
-            "-c:a", "libopus", "-b:a", "128k",
-            str(out),
-        ]
+        tile_w, tile_h = w, h
+    elif n == 2:
+        tile_w, tile_h = w // 2, h
     else:
-        # Horizontal stack. Each tile gets w/n and the full h.
-        tile_w = w // n
-        cmd = [_ffmpeg_bin(), "-y"]
-        for p in inputs:
-            cmd += ["-i", str(p)]
-        filter_parts = []
-        for i in range(n):
-            filter_parts.append(
-                f"[{i}:v]scale={tile_w}:{h}:force_original_aspect_ratio=decrease,"
-                f"pad={tile_w}:{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v{i}]"
+        tile_w, tile_h = w // 2, h // 2
+
+    cmd = [_ffmpeg_bin(), "-nostdin", "-y"]
+    for t in takes:
+        cmd += ["-i", str(t.path)]
+
+    parts: list[str] = []
+    tiles: list[str] = []
+    for pi, pid in enumerate(participants):
+        parts.append(f"color=c=black:s={tile_w}x{tile_h}:r=30:d={total:.3f}[base{pi}]")
+        cur = f"base{pi}"
+        for k, t in enumerate(takes):
+            if t.participant_id != pid:
+                continue
+            parts.append(
+                f"[{k}:v]scale={tile_w}:{tile_h}:force_original_aspect_ratio=increase,"
+                f"crop={tile_w}:{tile_h},setsar=1,fps=30,"
+                f"setpts=PTS-STARTPTS+{t.offset:.3f}/TB[tv{k}]"
             )
-        stack_inputs = "".join(f"[v{i}]" for i in range(n))
-        filter_parts.append(f"{stack_inputs}hstack=inputs={n}[v]")
-        # Mix all audio tracks.
-        amix_inputs = "".join(f"[{i}:a]" for i in range(n))
-        filter_parts.append(f"{amix_inputs}amix=inputs={n}:duration=longest:dropout_transition=0[a]")
-        filter_complex = ";".join(filter_parts)
-        cmd += [
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libvpx-vp9", "-b:v", "3M",
-            "-c:a", "libopus", "-b:a", "128k",
-            str(out),
-        ]
+            parts.append(f"[{cur}][tv{k}]overlay=eof_action=pass:repeatlast=0[o{pi}_{k}]")
+            cur = f"o{pi}_{k}"
+        tiles.append(f"[{cur}]")
+
+    if n == 1:
+        parts.append(f"{tiles[0]}null[v]")
+    elif n == 2:
+        parts.append(f"{''.join(tiles)}hstack=inputs=2[v]")
+    else:
+        if n == 3:
+            parts.append(f"color=c=black:s={tile_w}x{tile_h}:r=30:d={total:.3f}[pad]")
+            tiles.append("[pad]")
+        parts.append(f"{''.join(tiles)}xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0[v]")
+
+    for k, t in enumerate(takes):
+        ms = int(round(t.offset * 1000))
+        parts.append(f"[{k}:a]aresample=48000:async=1:first_pts=0,adelay={ms}:all=1[a{k}]")
+    amix_in = "".join(f"[a{k}]" for k in range(len(takes)))
+    parts.append(
+        f"{amix_in}amix=inputs={len(takes)}:duration=longest:dropout_transition=0:normalize=0,"
+        f"alimiter=limit=0.95[a]"
+    )
+
+    cmd += [
+        "-filter_complex", ";".join(parts),
+        "-map", "[v]", "-map", "[a]",
+        "-t", f"{total:.3f}",
+        "-c:v", "libvpx-vp9", "-b:v", "3M", "-deadline", "good", "-cpu-used", "5", "-row-mt", "1",
+        "-c:a", "libopus", "-b:a", "128k",
+        str(out),
+    ]
     log.info("ffmpeg: %s", " ".join(cmd))
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:

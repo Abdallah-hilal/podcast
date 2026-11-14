@@ -159,6 +159,14 @@ export class RecordingComposer {
       // sample-rate conversion overhead.
       this.audioCtx = new AudioContext({ sampleRate: 48000 });
       this.audioDest = this.audioCtx.createMediaStreamDestination();
+      // With no input connected (mic muted), Chrome stops emitting audio
+      // frames instead of silence, leaving a timestamp gap in the WebM that
+      // desyncs everything after it in editors and ffmpeg's amix. A
+      // permanently-connected zero source keeps the track continuous.
+      const keepAlive = this.audioCtx.createConstantSource();
+      keepAlive.offset.value = 0;
+      keepAlive.connect(this.audioDest);
+      keepAlive.start();
     } catch (e) {
       console.warn("RecordingComposer: AudioContext unavailable:", e);
       this.audioCtx = null;

@@ -41,6 +41,11 @@ export class RecordingPipeline {
   private bytesUploaded = 0;
   private chunksRecorded = 0;
   private lastError?: string;
+  // MediaRecorder fires dataavailable without awaiting our async handler, so
+  // chunks are chained: OPFS / local-file writes stay in order, and stop()
+  // can wait for the final chunk to land before sealing the last batch.
+  private chunkChain: Promise<void> = Promise.resolve();
+  private inflightUploads = new Map<string, Promise<void>>();
   // Called before every backend API call and every TUS upload to pull a
   // fresh Supabase JWT. Avoids baking a token at start() that would expire
   // after an hour mid-session and silently 401 every upload.
@@ -250,6 +255,8 @@ export class RecordingPipeline {
     this.bytesUploaded = 0;
     this.chunksRecorded = 0;
     this.lastError = undefined;
+    this.chunkChain = Promise.resolve();
+    this.inflightUploads = new Map();
     this._state = "idle";
   }
 
@@ -333,7 +340,14 @@ export class RecordingPipeline {
     this.startTime = Date.now();
 
     this.recorder = createRecorder(this.stream, mimeType, {
-      onChunk: (chunk, index) => this.handleChunk(chunk, index),
+      onChunk: (chunk, index) => {
+        this.chunkChain = this.chunkChain
+          .then(() => this.handleChunk(chunk, index))
+          .catch((err) => {
+            this.lastError = err instanceof Error ? err.message : String(err);
+            console.error(`Chunk ${index} could not be stored:`, err);
+          });
+      },
       onError: (err) => {
         console.error("Recording error:", err);
         this.setState("error");
@@ -382,17 +396,25 @@ export class RecordingPipeline {
    * so stop() can retry it later, rather than silently logging to the console
    * and leaving the pipeline unable to finalize.
    */
-  private async attemptUpload(batch: ReturnType<BatchManager["seal"]>) {
-    try {
-      await this.uploadBatch(batch);
-    } catch (err) {
-      this.batchManager.markFailed(batch.id, err);
-      this.lastError = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `Batch ${batch.sequenceNumber} failed (attempt ${batch.failedAttempts + 1}):`,
-        err,
-      );
-    }
+  private attemptUpload(batch: ReturnType<BatchManager["seal"]>): Promise<void> {
+    const existing = this.inflightUploads.get(batch.id);
+    if (existing) return existing;
+    const p = (async () => {
+      try {
+        await this.uploadBatch(batch);
+      } catch (err) {
+        this.batchManager.markFailed(batch.id, err);
+        this.lastError = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `Batch ${batch.sequenceNumber} failed (attempt ${batch.failedAttempts + 1}):`,
+          err,
+        );
+      } finally {
+        this.inflightUploads.delete(batch.id);
+      }
+    })();
+    this.inflightUploads.set(batch.id, p);
+    return p;
   }
 
   private async uploadBatch(batch: ReturnType<BatchManager["seal"]>) {
@@ -437,6 +459,9 @@ export class RecordingPipeline {
 
     // Stop MediaRecorder — waits for final ondataavailable
     await stopMediaRecorder(this.recorder);
+    // ...then for every queued chunk (including that final one) to be written
+    // and handed to the batch manager. Sealing before this drops the tail.
+    await this.chunkChain;
 
     // Close the local-save file now that MediaRecorder has emitted its final
     // chunk and handleChunk has drained it. close() flushes any buffered
@@ -467,14 +492,16 @@ export class RecordingPipeline {
 
     // Wait for any in-progress uploads to settle, bounded by STOP_WAIT_TIMEOUT_MS.
     const waitDeadline = Date.now() + STOP_WAIT_TIMEOUT_MS;
-    while (this.uploader.activeCount > 0 && Date.now() < waitDeadline) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
+    await Promise.race([
+      Promise.allSettled([...this.inflightUploads.values()]),
+      new Promise((r) => setTimeout(r, STOP_WAIT_TIMEOUT_MS)),
+    ]);
 
     // Retry every batch still pending — a connection hiccup during recording
     // shouldn't fail the whole finalize if the network is back now.
     for (const pending of this.batchManager.getPendingBatches()) {
       if (Date.now() >= waitDeadline) break;
+      if (this.inflightUploads.has(pending.id)) continue;
       if (pending.failedAttempts >= MAX_BATCH_ATTEMPTS) continue;
       await this.attemptUpload(pending);
     }
