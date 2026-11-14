@@ -2,8 +2,13 @@
 # owns — backend API, worker, frontend. Supabase and LiveKit are self-hosted
 # separately on the same VPS and reached by URL.
 #
-# Ports bind to 127.0.0.1 only; the host nginx proxies the public subdomains
-# (api.abdallahhelal.com, app.abdallahhelal.com) to these ports over TLS.
+# Ports bind to 127.0.0.1 only; the host nginx (vhost
+# podcast.abdallahhelal.com) proxies them over TLS.
+#
+# Host port bindings default to 3000/8000 but can be overridden in .env with
+# FRONTEND_PORT / BACKEND_PORT when those are already taken on the box (our
+# shared VPS runs Supabase Studio on 3000 and Supabase Kong on 8000, so this
+# deployment uses 3001/8100 — matched by the nginx upstream block).
 #
 # Secrets live in .env at the repo root — never commit it.
 
@@ -15,7 +20,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       # /ready checks Supabase + LiveKit reachability, not just that the
       # process is up. Failing deps mark the container unhealthy so a load
@@ -54,7 +59,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   hf-cache:
