@@ -52,8 +52,36 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   const [authed, setAuthed] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [error, setError] = useState("");
+  // Persist per-tab pre-join state so a refresh (or a transient LiveKit error
+  // the user recovers from) drops them straight back into the room with the
+  // devices they already picked — not stuck at PreJoin again. Keyed on
+  // sessionId so joining a different session still shows PreJoin.
+  const prejoinedStorageKey = `prejoined-${sessionId}`;
+  const prechoiceStorageKey = `prechoice-${sessionId}`;
   const [prejoined, setPrejoined] = useState(false);
   const [preChoice, setPreChoice] = useState<PreJoinChoice | null>(null);
+  const [prejoinHydrated, setPrejoinHydrated] = useState(false);
+  // Hydrate from sessionStorage on first client paint. We can't read it
+  // during initial state init because that would break SSR hydration — do
+  // it in an effect so server and client agree on the first render.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const flag = sessionStorage.getItem(prejoinedStorageKey);
+      const raw = sessionStorage.getItem(prechoiceStorageKey);
+      if (flag === "1" && raw) {
+        const saved = JSON.parse(raw) as Omit<PreJoinChoice, "localFileHandle">;
+        // FileSystemFileHandle can't survive serialization, so the saved
+        // choice always comes back without one. The in-call "Change Save
+        // Location" button lets the user pick again mid-recording.
+        setPreChoice({ ...saved, localFileHandle: null });
+        setPrejoined(true);
+      }
+    } catch {
+      /* corrupt json → ignore, show PreJoin as normal */
+    }
+    setPrejoinHydrated(true);
+  }, [prejoinedStorageKey, prechoiceStorageKey]);
   // Name of the file the local-save tee is targeting right now. Seeded in
   // PreJoin, updated by swapLocalFile() and by the stop-time auto-download
   // path — needs to be declared before handleStopRecording closes over it.
@@ -216,7 +244,15 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     //      a cancelled share sheet or swallowed download click still has a
     //      recoverable path (one tap).
     try {
-      if (pipelineRef.current.localSaveFilename) return;
+      // Only skip the fallback if a local tee actually completed cleanly.
+      // When the tee was in place but errored partway (write failure, close
+      // failure, disk full), the on-disk file is a partial recording — we
+      // still owe the user a full copy, so fall through to the download
+      // path here.
+      const teeFilename = pipelineRef.current.localSaveFilename;
+      const teeError = pipelineRef.current.localSaveError;
+      if (teeFilename && !teeError) return;
+
       const blob = await pipelineRef.current.assembleFullBlob();
       if (!blob) return;
 
@@ -271,6 +307,10 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       setLocalSaveFilename(filename);
     } catch (err) {
       console.warn("Auto-download of local copy failed:", err);
+    } finally {
+      // Chunks have been assembled (or the attempt failed loudly); either
+      // way the user doesn't need OPFS bytes sitting around any more.
+      void pipelineRef.current.releaseLocalChunks();
     }
   }, [sessionTitle]);
 
@@ -280,8 +320,17 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     if (pipelineRef.current.state === "recording") {
       await handleStopRecording();
     }
+    // Explicit leave clears the resume-on-refresh breadcrumb — otherwise
+    // clicking back into the link from the homepage would jump straight
+    // into the room without letting the user re-check their devices.
+    try {
+      sessionStorage.removeItem(prejoinedStorageKey);
+      sessionStorage.removeItem(prechoiceStorageKey);
+    } catch {
+      /* ignore */
+    }
     router.push("/");
-  }, [router, handleStopRecording]);
+  }, [router, handleStopRecording, prejoinedStorageKey, prechoiceStorageKey]);
 
   // Keep the filename in sync with the PreJoin choice when it changes.
   useEffect(() => {
@@ -409,6 +458,15 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         onJoin={(choice) => {
           setPreChoice(choice);
           setPrejoined(true);
+          // Remember the choice for refresh / re-entry. FileHandle doesn't
+          // serialise — strip it. Everything else survives JSON.
+          try {
+            const { localFileHandle: _lfh, ...serialisable } = choice;
+            sessionStorage.setItem(prechoiceStorageKey, JSON.stringify(serialisable));
+            sessionStorage.setItem(prejoinedStorageKey, "1");
+          } catch {
+            /* quota or private mode — not fatal */
+          }
         }}
         disabled={!!unsupported}
         disabledReason={unsupported ? support?.message : undefined}
@@ -488,16 +546,23 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   // Capture resolution: desktop Chrome/Edge handle 4K; iOS Safari and most
   // mobile browsers throw "The operation failed for an unknown transient
-  // reason" at 4K + stereo + LiveKit together. Pick the safe ceiling by UA
-  // so a Pocket 3 on a MacBook still gets 4K while an iPhone recording
-  // lands on its native 1080p.
+  // reason" at 4K + stereo + LiveKit together. "auto" picks the safe
+  // ceiling by UA so a Pocket 3 on a MacBook still gets 4K while an iPhone
+  // recording lands on its native 1080p. An explicit pick overrides.
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   const isMobileOrSafari =
     /iPhone|iPad|iPod|Android/i.test(ua) ||
     (/Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|Edg/i.test(ua));
-  const captureResolution = isMobileOrSafari
-    ? VideoPresets.h1080.resolution
-    : VideoPresets.h2160.resolution;
+  const captureResolution = (() => {
+    const q = preChoice?.quality ?? "auto";
+    if (q === "720p") return VideoPresets.h720.resolution;
+    if (q === "1080p") return VideoPresets.h1080.resolution;
+    if (q === "1440p") return VideoPresets.h1440.resolution;
+    if (q === "4k") return VideoPresets.h2160.resolution;
+    return isMobileOrSafari
+      ? VideoPresets.h1080.resolution
+      : VideoPresets.h2160.resolution;
+  })();
 
   const videoOpt: boolean | VideoCaptureOptions = preChoice?.camOn
     ? {

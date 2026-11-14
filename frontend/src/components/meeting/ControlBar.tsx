@@ -65,10 +65,15 @@ export function ControlBar({
     // of a solid bar that eats a fixed strip of the canvas. The inset top
     // highlight reads as light catching the glass.
     <div className="relative flex items-center justify-center gap-2 md:gap-3 py-5 px-4 material-dark border-t border-white/5">
+      {/* Mic + cam are safe to toggle during a recording: LiveKit's
+          useTrackToggle does a soft mute (track.enabled = false), it does NOT
+          end the MediaStreamTrack — the MediaRecorder stream stays live and
+          captures silence / black frames for the muted window. Only the
+          device SWITCHER needs locking, because switchActiveDevice rebuilds
+          the track underneath us. */}
       <IconToggle
         on={mic.enabled}
         onClick={() => mic.toggle()}
-        disabled={lockDeviceToggles}
         onIcon={<MicIcon />}
         offIcon={<MicOffIcon />}
         label={mic.enabled ? "Mute microphone" : "Unmute microphone"}
@@ -76,7 +81,6 @@ export function ControlBar({
       <IconToggle
         on={cam.enabled}
         onClick={() => cam.toggle()}
-        disabled={lockDeviceToggles}
         onIcon={<CamIcon />}
         offIcon={<CamOffIcon />}
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}

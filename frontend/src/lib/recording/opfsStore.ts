@@ -47,9 +47,15 @@ export class OPFSStore {
     return file;
   }
 
+  /**
+   * Read chunks in the half-open range [startIndex, endIndex). Writing the
+   * bound as exclusive matches the `getChunkCount()` return value directly —
+   * callers pass `readChunkRange(0, count)` and get every chunk back. For a
+   * batch spanning inclusive indices, pass `readChunkRange(start, end + 1)`.
+   */
   async readChunkRange(startIndex: number, endIndex: number): Promise<Blob> {
     const parts: Blob[] = [];
-    for (let i = startIndex; i <= endIndex; i++) {
+    for (let i = startIndex; i < endIndex; i++) {
       parts.push(await this.readChunk(i));
     }
     return new Blob(parts);

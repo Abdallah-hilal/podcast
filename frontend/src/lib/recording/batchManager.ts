@@ -67,7 +67,9 @@ export class BatchManager {
   }
 
   async assembleBatch(batch: Batch, store: OPFSStore): Promise<Blob> {
-    return store.readChunkRange(batch.startChunkIndex, batch.endChunkIndex);
+    // Batch's endChunkIndex is inclusive; readChunkRange takes an exclusive
+    // upper bound, so bump it by one here to cover the final chunk.
+    return store.readChunkRange(batch.startChunkIndex, batch.endChunkIndex + 1);
   }
 
   getSealedBatches(): Batch[] {

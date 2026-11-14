@@ -68,6 +68,17 @@ export class RecordingPipeline {
   }
 
   /**
+   * Last error from the local-save tee. Set when a chunk write failed or the
+   * final close() threw. SessionClient reads this after stop() to decide
+   * whether to fire the auto-download fallback — a partial on-disk file is
+   * worse than nothing, so we hand the user the full recording via the
+   * fallback path even when a tee was in progress.
+   */
+  get localSaveError(): string | null {
+    return this.localChunkError;
+  }
+
+  /**
    * Assemble every chunk written to OPFS into a single Blob — the raw per-
    * side recording the user would have gotten if they'd picked a save
    * location. Used by the auto-download-at-stop path in the UI. Returns
@@ -490,14 +501,24 @@ export class RecordingPipeline {
     }
     this.stream = null;
 
-    // Local chunks are safe to drop now that the final file is on Supabase.
-    // Fire-and-forget: a cleanup failure is non-fatal, the chunks just linger
-    // in the user's OPFS until the next session reclaims the directory.
-    void this.store.cleanup().catch((err) => {
-      console.warn("OPFS cleanup failed (non-fatal):", err);
-    });
-
+    // DON'T clean up OPFS here — SessionClient still needs the chunks for
+    // assembleFullBlob() in the auto-download-on-stop path. The caller must
+    // invoke releaseLocalChunks() after the fallback download has settled.
     this.setState("complete");
+  }
+
+  /**
+   * Drop the OPFS recording directory. Call this once the UI has finished
+   * with any post-stop reads (the auto-download fallback, specifically) so
+   * we don't eat the user's disk with abandoned chunks. Safe to call
+   * multiple times; a cleanup failure is non-fatal.
+   */
+  async releaseLocalChunks(): Promise<void> {
+    try {
+      await this.store.cleanup();
+    } catch (err) {
+      console.warn("OPFS cleanup failed (non-fatal):", err);
+    }
   }
 
   getProgress(): PipelineProgress {
