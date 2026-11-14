@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
+import { VideoPresets, type VideoCaptureOptions } from "livekit-client";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
@@ -433,17 +434,28 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const videoOpt: boolean | { deviceId: { exact: string } } = preChoice?.camOn
-    ? preChoice.cameraId
-      ? { deviceId: { exact: preChoice.cameraId } }
-      : true
+  // Ask LiveKit to capture at 4K — the local MediaStreamTrack feeds BOTH the
+  // live call and the recorder, so capping it at LiveKit's default 720p would
+  // silently cap the recording too. Simulcast still downscales what's sent to
+  // other peers; the recording reads from the raw source track. Cameras that
+  // can't do 4K negotiate down to their native max (laptop webcams usually
+  // land on 1080p or 720p — fine).
+  const videoOpt: boolean | VideoCaptureOptions = preChoice?.camOn
+    ? {
+        ...(preChoice.cameraId
+          ? { deviceId: { exact: preChoice.cameraId } }
+          : {}),
+        resolution: VideoPresets.h2160.resolution,
+      }
     : false;
 
-  const audioOpt: boolean | { deviceId: { exact: string } } = preChoice?.micOn
-    ? preChoice.micId
-      ? { deviceId: { exact: preChoice.micId } }
-      : true
-    : false;
+  const audioOpt: boolean | { deviceId: { exact: string }; channelCount?: number } =
+    preChoice?.micOn
+      ? {
+          ...(preChoice.micId ? { deviceId: { exact: preChoice.micId } } : {}),
+          channelCount: 2,
+        }
+      : false;
 
   return (
     <LiveKitRoom

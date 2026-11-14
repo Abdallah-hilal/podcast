@@ -11,7 +11,11 @@ import {
 import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
 
-const THROTTLE_BPS = 2_000_000; // 2 Mbps during live call
+// 8 Mbps during the live call — enough headroom for a 1080p recording's
+// upload to keep up and most of a 4K one, while leaving bandwidth for
+// LiveKit's own real-time video. OPFS buffers the overflow; the throttle
+// lifts on stop() so the tail upload isn't rate-limited.
+const THROTTLE_BPS = 8_000_000;
 const MAX_BATCH_ATTEMPTS = 3;
 // Give the final wait a ceiling — a hung upload shouldn't trap the user in
 // "uploading…" forever. 3 min accommodates a slow-but-recovering connection

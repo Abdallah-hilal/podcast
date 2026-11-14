@@ -101,8 +101,11 @@ export async function getRecordingStream(
     video: camOn
       ? {
           deviceId: cameraId ? { exact: cameraId } : undefined,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          // Ask for 4K; the camera driver will land on its native max if it
+          // can't deliver that (Osmo Pocket 3 does 4K60; a laptop webcam
+          // typically negotiates down to 1080p or 720p).
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
           frameRate: { ideal: 30 },
         }
       : false,
@@ -110,7 +113,8 @@ export async function getRecordingStream(
       ? {
           deviceId: micId ? { exact: micId } : undefined,
           sampleRate: 48000,
-          channelCount: 1,
+          // Prefer stereo for podcast-grade audio; mono if the device can't.
+          channelCount: { ideal: 2 },
         }
       : false,
   };
@@ -128,10 +132,12 @@ export function getStreamSettings(stream: MediaStream) {
 }
 
 /**
- * Pick a VP9/VP8 bitrate for the stream's actual resolution. A fixed 8 Mbps
- * was wasteful on a 360p mobile capture (2–3x the data needed) and still a
- * bit thin on 4K. These targets land at roughly 0.1 bits / pixel · frame for
- * VP9, which is where YouTube's VP9 recommendations sit for live-ish content.
+ * Pick a VP9/VP8 bitrate for the stream's actual resolution. Scales with the
+ * pixel count so a 360p mobile capture doesn't burn 8 Mbps and a 4K capture
+ * from a Pocket 3 isn't starved of bits. Targets roughly 0.1 bits per pixel
+ * per frame for VP9, matching YouTube's VP9 recommendations for 30fps
+ * recording-grade content. Pushes 4K up to 25 Mbps — that's the YouTube
+ * upload target for 4K30 VP9 and plenty for post-production.
  */
 function pickVideoBitrate(stream: MediaStream): number {
   const settings = stream.getVideoTracks()[0]?.getSettings();
@@ -141,7 +147,9 @@ function pickVideoBitrate(stream: MediaStream): number {
   if (pixels <= 640 * 480) return 1_500_000;
   if (pixels <= 1280 * 720) return 3_500_000;
   if (pixels <= 1920 * 1080) return 6_000_000;
-  return 10_000_000;
+  if (pixels <= 2560 * 1440) return 15_000_000;
+  if (pixels <= 3840 * 2160) return 25_000_000;
+  return 40_000_000; // 8K and beyond — someone's dreaming big
 }
 
 export function createRecorder(
@@ -152,7 +160,9 @@ export function createRecorder(
   const recorder = new MediaRecorder(stream, {
     mimeType,
     videoBitsPerSecond: pickVideoBitrate(stream),
-    audioBitsPerSecond: 128_000,
+    // 192 kbps Opus is transparent for stereo voice + music beds; mono
+    // plays through the same codec perfectly fine.
+    audioBitsPerSecond: 192_000,
   });
 
   let chunkIndex = 0;
