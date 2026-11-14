@@ -109,6 +109,8 @@ async def join_session(
             }
         ).eq("id", session_id).execute()
 
+    # supabase-py returns None from `.maybe_single().execute()` when no row
+    # matches (not an object with `.data = None`), so guard both.
     existing = (
         db.table("podcast_participants")
         .select("*")
@@ -118,7 +120,7 @@ async def join_session(
         .execute()
     )
 
-    if existing.data:
+    if existing and existing.data:
         participant_id = existing.data["id"]
         display_name = existing.data["display_name"]
         is_owner = existing.data["role"] == "host"
