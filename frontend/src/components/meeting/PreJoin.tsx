@@ -12,9 +12,7 @@ export interface PreJoinChoice {
   micId: string | undefined;
   camOn: boolean;
   micOn: boolean;
-  /** Capture resolution target. "auto" picks 4K on desktop Chrome/Edge and
-   * 1080p on iPhone / Safari / Android — the mobile cap avoids WebKit's
-   * "operation failed for an unknown transient reason" error at 4K + stereo. */
+  /** Capture resolution target. "auto" = 1080p (see SessionClient). */
   quality: QualityChoice;
   /**
    * If set, the pipeline tees every MediaRecorder chunk to this file in
@@ -355,14 +353,14 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               onChange={(e) => setQuality(e.target.value as QualityChoice)}
               className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 backdrop-blur-sm"
             >
-              <option value="auto">Auto — best your device + browser can do</option>
+              <option value="auto">Auto — 1080p (recommended)</option>
               <option value="4k">4K · 3840 × 2160 (25 Mbps)</option>
               <option value="1440p">1440p · 2560 × 1440 (15 Mbps)</option>
               <option value="1080p">1080p · 1920 × 1080 (6 Mbps)</option>
               <option value="720p">720p · 1280 × 720 (3.5 Mbps)</option>
             </select>
             <p className="mt-1 text-[11px] text-teal-300/70">
-              Auto picks 4K on desktop Chrome/Edge and 1080p on iPhone / Safari / Android — iOS can&apos;t capture 4K reliably.
+              Auto records 1080p — plenty for a podcast. Higher qualities make much bigger files that take far longer to upload on a home connection.
             </p>
           </label>
         </div>

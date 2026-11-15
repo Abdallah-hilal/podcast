@@ -4,15 +4,14 @@ import { TusUploader } from "./tusUploader";
 import { takeLockName, withSealed, withUploaded } from "./manifest";
 import { planRecovery } from "./recovery";
 
-// Same ceiling as live uploads so recovery never starves the call.
-const RECOVERY_THROTTLE_BPS = 8_000_000;
-
 export type RecoveryProgress = { active: boolean; percent: number };
 
 type Opts = {
   getToken: () => Promise<string>;
   /** Belt and braces for browsers without Web Locks: never touch this tab's live take. */
   isLive: (recordingId: string) => boolean;
+  /** Upload limit while this tab is in a live recording (null = full speed). */
+  rateLimit: () => number | null;
   onProgress: (p: RecoveryProgress) => void;
 };
 
@@ -37,7 +36,7 @@ export async function recoverLeftoverTakes(opts: Opts): Promise<void> {
   }
 }
 
-async function recoverOne(id: string, { getToken, onProgress }: Opts): Promise<void> {
+async function recoverOne(id: string, { getToken, onProgress, rateLimit }: Opts): Promise<void> {
   const store = new OPFSStore();
   if (!(await store.open(id))) return;
   let manifest = await store.readManifest();
@@ -54,8 +53,15 @@ async function recoverOne(id: string, { getToken, onProgress }: Opts): Promise<v
   const total = blobs.reduce((n, b) => n + b.size, 0) || 1;
   let done = 0;
   const uploader = new TusUploader();
-  uploader.setThrottle(RECOVERY_THROTTLE_BPS);
+  uploader.setRateLimit(rateLimit);
   onProgress({ active: true, percent: 0 });
+  // Keep the take open on the server while a long recovery upload runs.
+  const ping = () =>
+    void getToken()
+      .then((t) => api.heartbeatRecording(t, id))
+      .catch(() => {});
+  ping();
+  const heartbeat = setInterval(ping, 60_000);
 
   try {
     for (let i = 0; i < plan.uploads.length; i++) {
@@ -95,6 +101,7 @@ async function recoverOne(id: string, { getToken, onProgress }: Opts): Promise<v
     }
     console.warn(`Couldn't recover take ${id} yet; will retry next visit:`, e);
   } finally {
+    clearInterval(heartbeat);
     onProgress({ active: false, percent: 100 });
   }
 }

@@ -20,16 +20,20 @@ import {
   type TakeManifest,
 } from "./manifest";
 
-// 8 Mbps during the live call — enough headroom for a 1080p recording's
-// upload to keep up and most of a 4K one, while leaving bandwidth for
-// LiveKit's own real-time video. OPFS buffers the overflow; the throttle
-// lifts on stop() so the tail upload isn't rate-limited.
-const THROTTLE_BPS = 8_000_000;
+// Recording uploads while the call is live are kept to a small slice of the
+// uplink: Egyptian home lines are often ~1–2 Mbps up and LiveKit needs most
+// of that, so a full-speed upload would stutter the call. Everything else
+// waits in OPFS and goes at full speed after Stop (or on the next visit).
+export const LIVE_UPLOAD_BPS = 500_000;
 const MAX_BATCH_ATTEMPTS = 3;
-// Give the final wait a ceiling — a hung upload shouldn't trap the user in
-// "uploading…" forever. 3 min accommodates a slow-but-recovering connection
-// finishing a large batch; anything longer is a real network failure.
-const STOP_WAIT_TIMEOUT_MS = 180_000;
+// After Stop, keep waiting as long as bytes are moving — a slow uplink can
+// need hours for a long take. Give up only after this long with no progress
+// at all; the take stays open (heartbeat) and the next visit's recovery
+// finishes it.
+const UPLOAD_STALL_MS = 180_000;
+// Keeps an open page's take alive for the sweeper (worker/sweep.py); fine
+// under Chrome's once-a-minute timer throttling in hidden tabs.
+const HEARTBEAT_MS = 60_000;
 
 export type TokenGetter = () => Promise<string>;
 
@@ -60,6 +64,8 @@ export class RecordingPipeline {
   private manifest: TakeManifest | null = null;
   private manifestChain: Promise<void> = Promise.resolve();
   private releaseLock: (() => void) | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private lastUploadProgressAt = 0;
   // Called before every backend API call and every TUS upload to pull a
   // fresh Supabase JWT. Avoids baking a token at start() that would expire
   // after an hour mid-session and silently 401 every upload.
@@ -277,9 +283,29 @@ export class RecordingPipeline {
     this.chunkChain = Promise.resolve();
     this.inflightUploads = new Map();
     this.dropTakeLock();
+    this.stopHeartbeat();
     this.manifest = null;
     this.manifestChain = Promise.resolve();
     this._state = "idle";
+  }
+
+  /** Ping the server once a minute while this take is open (recording,
+   *  draining a slow upload after Stop, or failed and awaiting recovery) so
+   *  the worker's sweeper only closes takes whose page is really gone. */
+  private startHeartbeat(recordingId: string): void {
+    this.stopHeartbeat();
+    this.heartbeat = setInterval(() => {
+      void this.getToken()
+        .then((t) => api.heartbeatRecording(t, recordingId))
+        .catch(() => {
+          /* offline for a moment — the next ping will do */
+        });
+    }, HEARTBEAT_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
   }
 
   /** Persist the next manifest snapshot; writes stay in order. */
@@ -390,8 +416,9 @@ export class RecordingPipeline {
     await this.store.init(this.recordingId);
     await this.holdTakeLock(this.recordingId);
     this.saveManifest(newManifest(this.recordingId, sessionId));
+    this.startHeartbeat(this.recordingId);
 
-    this.uploader.setThrottle(THROTTLE_BPS);
+    this.uploader.setRateLimit(() => (this._state === "recording" ? LIVE_UPLOAD_BPS : null));
     this.setState("recording");
     this.startTime = Date.now();
 
@@ -512,8 +539,10 @@ export class RecordingPipeline {
       onProgress: (uploaded) => {
         this.bytesUploaded += uploaded - lastReported;
         lastReported = uploaded;
+        this.lastUploadProgressAt = Date.now();
       },
     });
+    this.lastUploadProgressAt = Date.now();
 
     token = await this.getToken();
     await api.completeBatch(token, this.recordingId, registered.batch_id);
@@ -521,7 +550,24 @@ export class RecordingPipeline {
     if (this.manifest) this.saveManifest(withUploaded(this.manifest, batch.sequenceNumber));
   }
 
-  async stop(): Promise<void> {
+  /** Wait for in-flight uploads; returns early only if none progress for UPLOAD_STALL_MS. */
+  private async drainUploads(): Promise<void> {
+    this.lastUploadProgressAt = Date.now();
+    while (this.inflightUploads.size > 0) {
+      await Promise.race([
+        Promise.allSettled([...this.inflightUploads.values()]),
+        new Promise((r) => setTimeout(r, 10_000)),
+      ]);
+      if (Date.now() - this.lastUploadProgressAt > UPLOAD_STALL_MS) return;
+    }
+  }
+
+  /**
+   * `onRecorded` fires as soon as the last chunk is on disk — before the
+   * (possibly long) upload — so the UI can hand the user their local copy
+   * right away instead of after the upload finishes.
+   */
+  async stop(opts?: { onRecorded?: () => void }): Promise<void> {
     if (this._state !== "recording") return;
     if (!this.recorder || !this.recordingId) return;
 
@@ -548,12 +594,19 @@ export class RecordingPipeline {
       this.localWriter = null;
     }
 
+    try {
+      opts?.onRecorded?.();
+    } catch (e) {
+      console.warn("onRecorded handler failed:", e);
+    }
+
     // Seal final batch
     const finalBatch = this.batchManager.sealFinal();
     if (finalBatch) this.recordSealed(finalBatch);
 
+    // Leaving "recording" lifts the live-call upload limit (see the rate
+    // source set in start()), including for uploads already in flight.
     this.setState("uploading");
-    this.uploader.setThrottle(null); // Remove throttle
 
     // Push the final batch (if any) through the retry wrapper so it joins
     // whatever else may need retrying rather than being special.
@@ -561,21 +614,17 @@ export class RecordingPipeline {
       void this.attemptUpload(finalBatch);
     }
 
-    // Wait for any in-progress uploads to settle, bounded by STOP_WAIT_TIMEOUT_MS.
-    const waitDeadline = Date.now() + STOP_WAIT_TIMEOUT_MS;
-    await Promise.race([
-      Promise.allSettled([...this.inflightUploads.values()]),
-      new Promise((r) => setTimeout(r, STOP_WAIT_TIMEOUT_MS)),
-    ]);
+    await this.drainUploads();
 
     // Retry every batch still pending — a connection hiccup during recording
     // shouldn't fail the whole finalize if the network is back now.
     for (const pending of this.batchManager.getPendingBatches()) {
-      if (Date.now() >= waitDeadline) break;
+      if (Date.now() - this.lastUploadProgressAt > UPLOAD_STALL_MS) break;
       if (this.inflightUploads.has(pending.id)) continue;
       if (pending.failedAttempts >= MAX_BATCH_ATTEMPTS) continue;
       await this.attemptUpload(pending);
     }
+    await this.drainUploads();
 
     // Final tally — if anything still hasn't uploaded, surface an error
     // instead of calling /finalize (which would 400 on missing batches).
@@ -595,6 +644,7 @@ export class RecordingPipeline {
 
     const finalToken = await this.getToken();
     await api.finalizeRecording(finalToken, this.recordingId);
+    this.stopHeartbeat();
     if (this.manifest) this.saveManifest(withFinalized(this.manifest));
     await this.manifestChain;
     this.dropTakeLock();

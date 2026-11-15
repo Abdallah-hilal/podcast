@@ -120,6 +120,14 @@ export function completeBatch(
   );
 }
 
+/** "Still here" ping while a take records or uploads (see worker/sweep.py). */
+export function heartbeatRecording(token: string, recordingId: string) {
+  return request<{ ok: boolean }>(`/api/v1/recordings/${recordingId}/heartbeat`, {
+    method: "POST",
+    token,
+  });
+}
+
 export function finalizeRecording(token: string, recordingId: string) {
   return request<{ status: string; recording_id: string }>(
     `/api/v1/recordings/${recordingId}/finalize`,

@@ -410,7 +410,7 @@ def sweep_abandoned(db: Client) -> None:
     pg = db.schema("podcast")
     open_takes = (
         pg.table("recordings")
-        .select("id, session_id, participant_id, status, created_at")
+        .select("id, session_id, participant_id, status, created_at, updated_at")
         .eq("status", "recording")
         .execute()
     ).data or []

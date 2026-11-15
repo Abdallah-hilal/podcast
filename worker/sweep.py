@@ -1,11 +1,11 @@
 """Decide what to do with takes whose browser stopped sending data.
 
 Pure (stdlib only) so it can be unit-tested without the worker's heavy
-dependencies. A live take registers a new batch at least every ~60 s, so a
-take with no activity for SILENT_AFTER has lost its browser (tab closed,
-crash, laptop died). If its uploads form a prefix from sequence 0 we close
-the take with that prefix — the person keeps everything up to roughly the
-last minute. A take that never uploaded anything is marked failed after
+dependencies. An open page pings once a minute (heartbeat) and registers a
+batch every ~60 s while recording, so a take silent for SILENT_AFTER has
+lost its browser for good (tab closed and never reopened, laptop died). If
+its uploads form a prefix from sequence 0 we close the take with that
+prefix. A take that never uploaded anything is marked failed after
 FAIL_AFTER so it stops showing "recording" forever.
 """
 
@@ -14,8 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-SILENT_AFTER = timedelta(minutes=5)
-FAIL_AFTER = timedelta(minutes=60)
+# A day, not minutes: on a slow home uplink the browser can hold hours of
+# not-yet-uploaded recording when the person closes the laptop. Recovery
+# finishes it when they reopen the link; closing earlier would throw that
+# backlog away. The heartbeat (recordings.updated_at) keeps open pages alive.
+SILENT_AFTER = timedelta(hours=24)
+FAIL_AFTER = timedelta(hours=24)
 
 
 @dataclass
@@ -41,7 +45,12 @@ def plan_sweep(rec: dict, batches: list[dict], now: datetime) -> SweepDecision |
     if rec.get("status") != "recording":
         return None
 
+    # recordings.updated_at is the browser's once-a-minute heartbeat while it
+    # records or uploads; a slow uplink can take far longer than 5 min to
+    # drain its backlog after Stop without registering any new batch.
     stamps = [_ts(rec["created_at"])]
+    if rec.get("updated_at"):
+        stamps.append(_ts(rec["updated_at"]))
     for b in batches:
         for key in ("created_at", "updated_at"):
             if b.get(key):

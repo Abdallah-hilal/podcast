@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -200,6 +201,33 @@ async def complete_batch(
     ).eq("recording_id", recording_id).execute()
 
     return {"status": "ok"}
+
+
+@router.post("/recordings/{recording_id}/heartbeat")
+async def heartbeat_recording(
+    recording_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """The browser pings this once a minute while it records or uploads, so
+    the worker's sweeper (worker/sweep.py) never closes a take that's still
+    draining a slow upload after Stop."""
+    db = _get_db()
+    recording = (
+        db.table("recordings")
+        .select("status, participants!inner(user_id)")
+        .eq("id", recording_id)
+        .maybe_single()
+        .execute()
+    )
+    if not recording or not recording.data:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    if recording.data["participants"]["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your recording")
+    _require_open(recording.data)
+    db.table("recordings").update(
+        {"updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", recording_id).eq("status", "recording").execute()
+    return {"ok": True}
 
 
 @router.post("/recordings/{recording_id}/finalize")

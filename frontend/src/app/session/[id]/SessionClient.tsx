@@ -28,7 +28,7 @@ import {
   PhoneOffIcon,
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
-import { RecordingPipeline } from "@/lib/recording/pipeline";
+import { LIVE_UPLOAD_BPS, RecordingPipeline } from "@/lib/recording/pipeline";
 import { createSingleFlight } from "@/lib/singleFlight";
 import { offerFile, type ShareNavigator } from "@/lib/recording/offerFile";
 import {
@@ -235,6 +235,9 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     void recoverLeftoverTakes({
       getToken: getFreshToken,
       isLive: (id) => pipelineRef.current.currentRecordingId === id,
+      // A refresh mid-call recovers while a new take is recording — pace it
+      // like a live upload so it doesn't stutter the call.
+      rateLimit: () => (pipelineRef.current.state === "recording" ? LIVE_UPLOAD_BPS : null),
       onProgress: setRecovery,
     }).catch((e) => console.warn("Take recovery failed:", e));
   }, [authed, getFreshToken]);
@@ -271,23 +274,16 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     [sessionId, authed, getFreshToken, preChoice]
   );
 
-  const stopRecordingImpl = useCallback(async () => {
-    try {
-      await pipelineRef.current.stop();
-    } catch (err) {
-      console.error("Failed to stop recording:", err);
-    }
-    // If the user DID pick a File System Access handle in PreJoin (desktop
-    // Chrome/Edge), the file is already on disk — nothing more to do.
-    // Otherwise, hand them the raw per-side recording via:
-    //   1. Web Share API (iOS 15+ / Chrome Android) — opens the native
-    //      share sheet; they tap "Save to Files" / Drive / wherever.
-    //   2. Programmatic <a download> — desktop Chrome/Firefox save to
-    //      Downloads folder; iOS Safari ignores the download attribute and
-    //      opens the blob in the tab (tap-and-hold → Save Video).
-    //   3. Visible "Download recording" button that stays up after Stop so
-    //      a cancelled share sheet or swallowed download click still has a
-    //      recoverable path (one tap).
+  // Hand the user their own raw recording the moment the recorder stops —
+  // not after the upload, which can take hours on a slow uplink. If they
+  // picked a save-to-disk file in PreJoin (desktop Chrome/Edge) it's already
+  // there. Otherwise:
+  //   1. Desktop: programmatic <a download> into Downloads.
+  //   2. Phones: the native share sheet ("Save to Files" / Drive), falling
+  //      back to <a download>.
+  //   3. A visible "Download recording" card stays up either way, in case
+  //      the download or sheet got dismissed.
+  const offerLocalCopy = useCallback(async () => {
     try {
       // Only skip the fallback if a local tee actually completed cleanly.
       // When the tee was in place but errored partway (write failure, close
@@ -319,9 +315,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       // doesn't get revoked underneath them.
       setPendingDownload({ url: URL.createObjectURL(blob), filename });
 
-      // Native share sheet where files can be shared (iOS, Android, Chrome
-      // on macOS), else a programmatic download. Not awaited: a sheet the
-      // user leaves open must not block the next stop or a Leave click.
       const file = new File([blob], filename, { type: blob.type });
       const download = () => {
         const dlUrl = URL.createObjectURL(blob);
@@ -334,17 +327,32 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         setTimeout(() => URL.revokeObjectURL(dlUrl), 2000);
         setLocalSaveFilename(filename);
       };
-      offerFile(file, navigator as ShareNavigator, download, () =>
-        setLocalSaveFilename(filename),
-      );
+      // Chrome on macOS also claims it can share files, but its share sheet
+      // has no "save" target — desktop gets a plain download. Not awaited: a
+      // sheet left open must not block the next stop or a Leave click.
+      const isPhone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isPhone) {
+        offerFile(file, navigator as ShareNavigator, download, () =>
+          setLocalSaveFilename(filename),
+        );
+      } else {
+        download();
+      }
     } catch (err) {
       console.warn("Auto-download of local copy failed:", err);
-    } finally {
-      // Chunks have been assembled (or the attempt failed loudly); either
-      // way the user doesn't need OPFS bytes sitting around any more.
-      void pipelineRef.current.releaseLocalChunks();
     }
+    // The OPFS copy is NOT deleted here: the download above streams from it,
+    // and on a failed/slow upload it's what recovery finishes from. The next
+    // visit's recovery deletes it once the take is finalized.
   }, [sessionTitle]);
+
+  const stopRecordingImpl = useCallback(async () => {
+    try {
+      await pipelineRef.current.stop({ onRecorded: () => void offerLocalCopy() });
+    } catch (err) {
+      console.error("Failed to stop recording:", err);
+    }
+  }, [offerLocalCopy]);
 
   // One stop at a time: the host's switch turning off and a Leave click can
   // both ask to stop. Single-flight makes the second caller wait on the
@@ -357,11 +365,16 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   const handleLeave = useCallback(async () => {
     // Route Leave-while-recording through the same stop path so the
-    // auto-download fires once (and only once) per recording — and wait
-    // for a stop already in flight (e.g. started by the host's switch).
-    const s = pipelineRef.current.state;
-    if (s === "recording" || s === "stopping" || s === "uploading") {
-      await handleStopRecording();
+    // auto-download fires once (and only once) per recording. Wait only
+    // until the recorder has stopped and the local copy is offered — the
+    // upload keeps going in this tab in the background (and if the tab
+    // closes, the next visit's recovery finishes it). Waiting for the whole
+    // upload could mean hours on a slow uplink.
+    if (pipelineRef.current.state === "recording") void handleStopRecording();
+    for (let i = 0; i < 150; i++) {
+      const s = pipelineRef.current.state;
+      if (s !== "recording" && s !== "stopping") break;
+      await new Promise((r) => setTimeout(r, 200));
     }
     // Explicit leave clears the resume-on-refresh breadcrumb — otherwise
     // clicking back into the link from the homepage would jump straight
@@ -588,24 +601,16 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  // Capture resolution: desktop Chrome/Edge handle 4K; iOS Safari and most
-  // mobile browsers throw "The operation failed for an unknown transient
-  // reason" at 4K + stereo + LiveKit together. "auto" picks the safe
-  // ceiling by UA so a Pocket 3 on a MacBook still gets 4K while an iPhone
-  // recording lands on its native 1080p. An explicit pick overrides.
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  const isMobileOrSafari =
-    /iPhone|iPad|iPod|Android/i.test(ua) ||
-    (/Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|Edg/i.test(ua));
+  // Capture resolution. "Auto" = 1080p everywhere: plenty for a podcast,
+  // safe on phones (iOS Safari fails at 4K + stereo + LiveKit), and 4K
+  // (25 Mbps ≈ 11 GB/hour per person) is more than a home uplink can move.
+  // An explicit pick (up to 4K) overrides.
   const captureResolution = (() => {
     const q = preChoice?.quality ?? "auto";
     if (q === "720p") return VideoPresets.h720.resolution;
-    if (q === "1080p") return VideoPresets.h1080.resolution;
     if (q === "1440p") return VideoPresets.h1440.resolution;
     if (q === "4k") return VideoPresets.h2160.resolution;
-    return isMobileOrSafari
-      ? VideoPresets.h1080.resolution
-      : VideoPresets.h2160.resolution;
+    return VideoPresets.h1080.resolution;
   })();
 
   const videoOpt: boolean | VideoCaptureOptions = preChoice?.camOn
