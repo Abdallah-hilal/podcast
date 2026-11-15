@@ -26,6 +26,7 @@ import {
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
 import { createSingleFlight } from "@/lib/singleFlight";
+import { offerFile, type ShareNavigator } from "@/lib/recording/offerFile";
 import {
   parseRoomSwitch,
   decideSwitchAction,
@@ -299,37 +300,24 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       // doesn't get revoked underneath them.
       setPendingDownload({ url: URL.createObjectURL(blob), filename });
 
-      // Try native share first. canShare({ files }) returns false on
-      // desktop Chrome, Firefox, and anywhere the capability isn't wired —
-      // we fall straight through to <a download> there.
+      // Native share sheet where files can be shared (iOS, Android, Chrome
+      // on macOS), else a programmatic download. Not awaited: a sheet the
+      // user leaves open must not block the next stop or a Leave click.
       const file = new File([blob], filename, { type: blob.type });
-      const nav = navigator as Navigator & {
-        canShare?: (data: { files: File[] }) => boolean;
-        share?: (data: { files: File[]; title?: string }) => Promise<void>;
+      const download = () => {
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = dlUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(dlUrl), 2000);
+        setLocalSaveFilename(filename);
       };
-      if (nav.canShare && nav.share && nav.canShare({ files: [file] })) {
-        try {
-          await nav.share({ files: [file], title: "Podcast recording" });
-          setLocalSaveFilename(filename);
-          return;
-        } catch (e) {
-          // AbortError = user cancelled the share sheet; leave the download
-          // button visible and don't try the <a download> fallback (would
-          // double-prompt on Android).
-          if ((e as { name?: string })?.name === "AbortError") return;
-        }
-      }
-
-      // Desktop fallback.
-      const dlUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = dlUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(dlUrl), 2000);
-      setLocalSaveFilename(filename);
+      offerFile(file, navigator as ShareNavigator, download, () =>
+        setLocalSaveFilename(filename),
+      );
     } catch (err) {
       console.warn("Auto-download of local copy failed:", err);
     } finally {
