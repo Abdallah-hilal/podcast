@@ -16,7 +16,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY main.py .
+COPY main.py sweep.py ./
 
 # Cache dir for faster-whisper model downloads survives container restarts
 # when /root/.cache/huggingface is a named volume (see docker-compose.yml).

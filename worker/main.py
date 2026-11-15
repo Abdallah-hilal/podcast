@@ -36,8 +36,11 @@ from uuid import uuid4
 import numpy as np
 from supabase import Client, create_client
 
+from sweep import final_path, plan_sweep
+
 BUCKET = "podcast-recordings"
 POLL_INTERVAL_SEC = float(os.environ.get("WORKER_POLL_INTERVAL_SEC", "5"))
+SWEEP_INTERVAL_SEC = float(os.environ.get("WORKER_SWEEP_INTERVAL_SEC", "60"))
 MAX_ATTEMPTS = int(os.environ.get("WORKER_MAX_ATTEMPTS", "3"))
 
 # Transcription knobs
@@ -140,6 +143,9 @@ def process_reconstruct(db: Client, job: dict) -> None:
         db.schema("podcast").table("recording_batches")
         .select("sequence_number, storage_path, byte_size")
         .eq("recording_id", recording_id)
+        # Normal finalize requires every batch uploaded; a sweeper-closed
+        # take may carry "error" batches past its uploaded prefix.
+        .eq("upload_status", "uploaded")
         .order("sequence_number")
         .execute()
     )
@@ -553,6 +559,85 @@ def _render_composite(takes: list[Take], out: Path) -> None:
 # Failure handling + main loop
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# sweeper — close takes whose browser vanished (see sweep.py)
+# ---------------------------------------------------------------------------
+
+def sweep_abandoned(db: Client) -> None:
+    pg = db.schema("podcast")
+    open_takes = (
+        pg.table("recordings")
+        .select("id, session_id, participant_id, status, created_at")
+        .eq("status", "recording")
+        .execute()
+    ).data or []
+    now = datetime.now(timezone.utc)
+    for rec in open_takes:
+        try:
+            batches = (
+                pg.table("recording_batches")
+                .select("id, sequence_number, upload_status, created_at, updated_at")
+                .eq("recording_id", rec["id"])
+                .execute()
+            ).data or []
+            decision = plan_sweep(rec, batches, now)
+            if decision is None:
+                continue
+            if decision.action == "fail":
+                pg.table("recordings").update(
+                    {"status": "error", "updated_at": _now_iso()}
+                ).eq("id", rec["id"]).eq("status", "recording").execute()
+                log.info("sweep: take %s never uploaded anything — marked error", rec["id"])
+                continue
+
+            # Claim by flipping status while it's still `recording`; from here
+            # the backend 409s any late batch or finalize from the browser.
+            claimed = (
+                pg.table("recordings")
+                .update({
+                    "status": "uploaded",
+                    "final_storage_path": final_path(
+                        rec["session_id"], rec["participant_id"], rec["id"]
+                    ),
+                    "updated_at": _now_iso(),
+                })
+                .eq("id", rec["id"])
+                .eq("status", "recording")
+                .execute()
+            )
+            if not claimed.data:
+                continue
+            # Re-read after the claim so a batch registered in between is
+            # excluded too; only the contiguous uploaded prefix is stitched.
+            # Mark the rest "error" (the schema's only non-uploaded terminal
+            # value) rather than deleting rows or files — nothing that might
+            # hold data is ever destroyed here.
+            extra = (
+                pg.table("recording_batches")
+                .select("id")
+                .eq("recording_id", rec["id"])
+                .not_.in_("sequence_number", decision.keep_seqs)
+                .execute()
+            ).data or []
+            if extra:
+                pg.table("recording_batches").update(
+                    {"upload_status": "error"}
+                ).in_("id", [b["id"] for b in extra]).execute()
+            pg.table("processing_jobs").insert({
+                "id": str(uuid4()),
+                "recording_id": rec["id"],
+                "job_type": "reconstruct",
+                "status": "pending",
+                "attempts": 0,
+            }).execute()
+            log.info(
+                "sweep: take %s went silent — closing with batches %s (%d excluded)",
+                rec["id"], decision.keep_seqs, len(extra),
+            )
+        except Exception:
+            log.exception("sweep: take %s failed, will retry next sweep", rec["id"])
+
+
 def fail_job(db: Client, job: dict, err: Exception) -> None:
     attempts = job["attempts"]
     message = f"{type(err).__name__}: {err}"
@@ -596,7 +681,15 @@ def main() -> None:
         POLL_INTERVAL_SEC, MAX_ATTEMPTS, JOB_TYPES,
     )
 
+    last_sweep = 0.0
     while not _stop:
+        if time.monotonic() - last_sweep >= SWEEP_INTERVAL_SEC:
+            last_sweep = time.monotonic()
+            try:
+                sweep_abandoned(db)
+            except Exception:
+                log.exception("sweep failed, retrying next interval")
+
         try:
             job = claim_next_job(db)
         except Exception:
