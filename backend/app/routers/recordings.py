@@ -99,6 +99,16 @@ async def start_recording(
     )
 
 
+def _require_open(recording: dict) -> None:
+    """A take accepts batches and a finalize only while it's `recording`.
+    Once the client finalized it (or the worker's sweeper closed it after
+    the browser vanished), a late upload or a second finalize must not
+    reopen it or queue a duplicate reconstruct. The browser's recovery
+    treats this 409 as "already handled — drop the local copy"."""
+    if recording.get("status") != "recording":
+        raise HTTPException(status_code=409, detail="Recording already closed")
+
+
 class RegisterBatchRequest(BaseModel):
     sequence_number: int
     byte_size: int
@@ -134,6 +144,7 @@ async def register_batch(
 
     if recording.data["participants"]["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Not your recording")
+    _require_open(recording.data)
 
     session_id = recording.data["session_id"]
     participant_id = recording.data["participant_id"]
@@ -209,6 +220,7 @@ async def finalize_recording(
         raise HTTPException(status_code=404, detail="Recording not found")
     if recording.data["participants"]["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Not your recording")
+    _require_open(recording.data)
 
     pending = (
         db.table("recording_batches")
