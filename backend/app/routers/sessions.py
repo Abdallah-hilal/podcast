@@ -283,10 +283,12 @@ def _owner_only(db, session_id: str, user_id: str) -> None:
         db.table("sessions")
         .select("owner_id")
         .eq("id", session_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not session.data:
+    # .single() raises PGRST116 (→ 500) on an unknown id; maybe_single()
+    # returns None or an empty result instead.
+    if not session or not session.data:
         raise HTTPException(status_code=404, detail="Session not found")
     if session.data["owner_id"] != user_id:
         raise HTTPException(status_code=403, detail="Only the session owner can do this")
