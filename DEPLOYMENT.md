@@ -103,9 +103,7 @@ docker compose ps
 ```
 
 Should see three services `running (healthy)` within ~30 s. First boot
-builds the images (~3–4 min) and the first job enqueued to the worker
-also downloads the Whisper model (~460 MB, cached to a named volume
-after).
+builds the images (~3–4 min).
 
 Hook it into systemd so it comes back after reboots:
 
@@ -157,8 +155,7 @@ git pull
 docker compose up -d --build
 ```
 
-The `--build` picks up Dockerfile or source changes. Named volumes
-(`hf-cache`) survive.
+The `--build` picks up Dockerfile or source changes.
 
 ---
 

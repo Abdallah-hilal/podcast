@@ -15,7 +15,6 @@ type Row = {
   total_bytes: number | null;
   created_at: string;
   mime_type: string | null;
-  transcript_status: string | null;
   participants: {
     role: "host" | "guest";
     sessions: { id: string; title: string };
@@ -96,7 +95,7 @@ export default function RecordingsPage() {
         .schema("podcast")
         .from("recordings")
         .select(
-          "id, status, total_bytes, created_at, mime_type, transcript_status, " +
+          "id, status, total_bytes, created_at, mime_type, " +
           "participants!inner(role, sessions!inner(id, title))"
         )
         .order("created_at", { ascending: false });
@@ -180,7 +179,6 @@ export default function RecordingsPage() {
               const role = r.participants?.role ?? "—";
               const clickable = r.status === "ready";
               const statusInfo = STATUS_CLASS[r.status] ?? { cls: "bg-cream-200 text-ink-muted", label: r.status };
-              const ts = r.transcript_status;
 
               const inner = (
                 <>
@@ -194,25 +192,6 @@ export default function RecordingsPage() {
                       <span>{fmtDate(r.created_at)}</span>
                       <span>·</span>
                       <span>{fmtBytes(r.total_bytes)}</span>
-                      {ts && ts !== "none" && (
-                        <>
-                          <span>·</span>
-                          <span>
-                            transcript:{" "}
-                            <span
-                              className={
-                                ts === "ready"
-                                  ? "text-brand font-semibold"
-                                  : ts === "error"
-                                    ? "text-coral-700 font-semibold"
-                                    : "text-coral-500 font-semibold"
-                              }
-                            >
-                              {ts}
-                            </span>
-                          </span>
-                        </>
-                      )}
                     </div>
                   </div>
                   <span

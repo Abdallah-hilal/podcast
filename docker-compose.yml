@@ -37,9 +37,6 @@ services:
     container_name: podcast-worker
     restart: unless-stopped
     env_file: .env
-    volumes:
-      # Persist the Whisper model download across restarts.
-      - hf-cache:/root/.cache/huggingface
     depends_on:
       backend:
         condition: service_healthy
@@ -60,6 +57,3 @@ services:
     env_file: .env
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
-
-volumes:
-  hf-cache:

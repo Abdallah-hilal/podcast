@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Turn a session's per-person recordings into an edited podcast episode.
 
-    python3 tools/podcast_edit.py fetch <session_id>          # pull files + transcripts from the server
-    python3 tools/podcast_edit.py edit exports/<session_id>   # render episode.mp4 + episode.srt
+    python3 tools/podcast_edit.py fetch <session_id>          # pull the recordings from the server
+    python3 tools/podcast_edit.py edit exports/<session_id>   # render episode.mp4
 
 What `edit` does:
   * lines every take up on one timeline using its server start time
@@ -11,8 +11,7 @@ What `edit` does:
     on long pauses), with a minimum shot length so it never flickers
   * trims the dead air before the first word / after the last, and shortens
     long pauses (--no-tighten to keep them)
-  * writes episode.srt + transcript.txt from the Whisper transcripts,
-    re-timed to the edited cut
+  * optional on-screen names (--names)
 
 Stdlib only; needs ffmpeg/ffprobe (FFMPEG_BIN to override).
 """
@@ -66,7 +65,7 @@ def cmd_fetch(args) -> None:
         'takes', coalesce((select json_agg(json_build_object(
             'recording_id', r.id, 'participant_id', r.participant_id,
             'role', p.role, 'name', p.display_name, 'start', r.created_at,
-            'path', r.final_storage_path, 'segments', r.transcript_segments)
+            'path', r.final_storage_path)
           order by r.created_at)
           from podcast.recordings r join podcast.participants p on p.id = r.participant_id
           where r.session_id = s.id and r.status = 'ready'), '[]'::json))
@@ -94,7 +93,6 @@ class Take:
     file: Path
     offset: float
     duration: float
-    segments: list = field(default_factory=list)
 
 
 @dataclass
@@ -298,7 +296,6 @@ PlayResY: {h}
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Label,{font},44,&H00FFFFFF,&H00FFFFFF,&H73000000,&H73000000,1,0,0,0,100,100,0,0,3,14,0,1,40,40,40,1
-Style: Caption,{font},58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,1,0,0,0,100,100,0,0,1,4,1,2,140,140,110,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -310,31 +307,26 @@ def ass_ts(t: float) -> str:
     return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
 
 
-def write_overlay(people: list[Person], shots, keep, captions, path: Path, labels: bool, burn: bool) -> bool:
-    """Name labels + optional burned captions as ASS: libass does proper
-    right-to-left shaping for Arabic, which ffmpeg's drawtext can't without
-    fribidi."""
+def write_overlay(people: list[Person], shots, keep, path: Path) -> bool:
+    """On-screen names as ASS: libass does proper right-to-left shaping for
+    Arabic names, which ffmpeg's drawtext can't without fribidi."""
     events = []
     n = len(people)
-    if labels:
-        for a, b, s in shots:
-            for ka, kb in keep:
-                lo, hi = max(a, ka), min(b, kb)
-                if hi - lo < 0.1:
-                    continue
-                oa, ob = remap(lo, keep), remap(hi, keep)
-                if s != WIDE:
-                    spots = [(s, 40, H - 40)]
-                elif n == 2:
-                    spots = [(people[0].name, 40, H - 40), (people[1].name, W // 2 + 40, H - 40)]
-                else:
-                    spots = [(p.name, (i % 2) * W // 2 + 40, (i // 2 + 1) * H // 2 - 40)
-                             for i, p in enumerate(people[:4])]
-                for name, x, y in spots:
-                    events.append(f"Dialogue: 0,{ass_ts(oa)},{ass_ts(ob)},Label,,0,0,0,,{{\\pos({x},{y})}}{name}")
-    if burn:
-        for a, b, _, text in captions:
-            events.append(f"Dialogue: 1,{ass_ts(a)},{ass_ts(b)},Caption,,0,0,0,,{text}")
+    for a, b, s in shots:
+        for ka, kb in keep:
+            lo, hi = max(a, ka), min(b, kb)
+            if hi - lo < 0.1:
+                continue
+            oa, ob = remap(lo, keep), remap(hi, keep)
+            if s != WIDE:
+                spots = [(s, 40, H - 40)]
+            elif n == 2:
+                spots = [(people[0].name, 40, H - 40), (people[1].name, W // 2 + 40, H - 40)]
+            else:
+                spots = [(p.name, (i % 2) * W // 2 + 40, (i // 2 + 1) * H // 2 - 40)
+                         for i, p in enumerate(people[:4])]
+            for name, x, y in spots:
+                events.append(f"Dialogue: 0,{ass_ts(oa)},{ass_ts(ob)},Label,,0,0,0,,{{\\pos({x},{y})}}{name}")
     if not events:
         return False
     font = os.environ.get("PODCAST_FONT_NAME", "Geeza Pro")
@@ -441,94 +433,6 @@ def render(people: list[Person], shots, keep, total: float, out: Path, overlay: 
     subprocess.run(cmd, check=True)
 
 
-# ---------------------------------------------------------------- captions
-
-def ts(t: float) -> str:
-    ms = int(round(t * 1000))
-    return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
-
-
-def timed_words(p: Person, t: Take, seg: dict) -> list[tuple[float, float, str]]:
-    """Absolute-timeline words for one Whisper segment. Uses real word
-    timestamps when the worker stored them; otherwise spreads the words over
-    the moments this person is actually speaking inside the segment, so a
-    segment that spans the other person's turn doesn't caption over them."""
-    if seg.get("words"):
-        out = []
-        for w in seg["words"]:
-            if not w["w"].strip():
-                continue
-            s, e = t.offset + w["s"], t.offset + w["e"]
-            # Whisper stretches the first word after a pause back over the
-            # silence; start it where this person's voice actually resumes.
-            f, last = int(s / FRAME), min(int(e / FRAME), len(p.speaking) - 1)
-            while f < last and not p.speaking[f]:
-                f += 1
-            out.append((max(s, f * FRAME), e, w["w"].strip()))
-        return out
-    words = seg["text"].split()
-    if not words:
-        return []
-    a, b = t.offset + seg["start"], t.offset + seg["end"]
-    frames = [f for f in range(int(a / FRAME), int(b / FRAME) + 1)
-              if 0 <= f < len(p.speaking) and p.speaking[f]] or list(range(int(a / FRAME), int(b / FRAME) + 1))
-    weights = [len(w) + 1 for w in words]
-    total_w = sum(weights)
-    out, acc = [], 0
-    for w, wt in zip(words, weights):
-        i0 = int(acc / total_w * len(frames))
-        acc += wt
-        i1 = min(max(i0, int(acc / total_w * len(frames)) - 1), len(frames) - 1)
-        j = i0
-        while j < i1 and frames[j + 1] == frames[j] + 1:  # stay inside one stretch of speech
-            j += 1
-        out.append((frames[i0] * FRAME, (frames[j] + 1) * FRAME, w))
-    return out
-
-
-def cues_from_words(words: list[tuple[float, float, str]], max_words=7, max_chars=42, max_len=4.0):
-    cues, cur = [], []
-    for w in words:
-        if cur and (len(cur) >= max_words or w[0] - cur[-1][1] > 0.6 or w[1] - cur[0][0] > max_len
-                    or len(" ".join(x[2] for x in cur + [w])) > max_chars):
-            cues.append(cur)
-            cur = []
-        cur.append(w)
-    if cur:
-        cues.append(cur)
-    return [(c[0][0], c[-1][1], " ".join(x[2] for x in c)) for c in cues]
-
-
-def write_captions(people: list[Person], keep, out_dir: Path) -> list[tuple[float, float, str, str]]:
-    lines = []
-    for p in people:
-        for t in p.takes:
-            for s in t.segments or []:
-                for a0, b0, text in cues_from_words(timed_words(p, t, s)):
-                    a, b = remap(a0, keep), remap(b0, keep)
-                    if a is None or b is None or b - a < 0.2:
-                        continue
-                    lines.append((a, b, p.name, text))
-    lines.sort()
-    for i in range(len(lines) - 1):  # one caption on screen at a time
-        a, b, name, text = lines[i]
-        if b > lines[i + 1][0]:
-            lines[i] = (a, max(a + 0.2, lines[i + 1][0]), name, text)
-    with open(out_dir / "episode.srt", "w") as f:
-        for i, (a, b, _, text) in enumerate(lines, 1):
-            f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{text}\n\n")
-    turns: list[list] = []
-    for a, _, name, text in lines:
-        if turns and turns[-1][1] == name:
-            turns[-1][2] += " " + text
-        else:
-            turns.append([a, name, text])
-    with open(out_dir / "transcript.txt", "w") as f:
-        for a, name, text in turns:
-            f.write(f"[{ts(a)[:8]}] {name}: {text}\n\n")
-    return lines
-
-
 # ---------------------------------------------------------------- edit command
 
 def cmd_edit(args) -> None:
@@ -545,7 +449,7 @@ def cmd_edit(args) -> None:
     for t in takes:
         f = d / t["file"]
         offset = (datetime.fromisoformat(t["start"]) - t0).total_seconds()
-        people[t["participant_id"]].takes.append(Take(f, offset, probe_duration(f), t.get("segments") or []))
+        people[t["participant_id"]].takes.append(Take(f, offset, probe_duration(f)))
     plist = list(people.values())
     total = max(t.offset + t.duration for p in plist for t in p.takes)
     frames = int(total / FRAME) + 1
@@ -560,10 +464,8 @@ def cmd_edit(args) -> None:
     final_len = sum(b - a for a, b in keep)
     print(f"  timeline {total:.1f}s -> episode {final_len:.1f}s, {len(shots)} shots, {len(keep)} kept spans")
     (d / "edl.json").write_text(json.dumps({"shots": shots, "keep": keep}, ensure_ascii=False, indent=1))
-    captions = write_captions(plist, keep, d)
-    print(f"  captions: {len(captions)} lines -> episode.srt, transcript.txt")
     overlay = d / "overlay.ass"
-    has_overlay = write_overlay(plist, shots, keep, captions, overlay, labels=bool(names), burn=args.burn_captions)
+    has_overlay = bool(names) and write_overlay(plist, shots, keep, overlay)
     correction = loudness_correction(plist, keep)
     print(f"  loudness correction {correction:+.1f} dB -> -16 LUFS")
     render(plist, shots, keep, total, d / "episode.mp4", overlay if has_overlay else None,
@@ -582,7 +484,6 @@ def main() -> None:
     e.add_argument("--layout", choices=["auto", "split"], default="auto")
     e.add_argument("--min-shot", type=float, default=2.0)
     e.add_argument("--no-tighten", action="store_true", help="keep long pauses")
-    e.add_argument("--burn-captions", action="store_true", help="draw captions into the video (for social)")
     e.add_argument("--preset", default="medium", help="x264 preset (veryfast for drafts)")
     args = ap.parse_args()
     {"fetch": cmd_fetch, "edit": cmd_edit}[args.cmd](args)

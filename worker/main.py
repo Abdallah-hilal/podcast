@@ -3,8 +3,6 @@ Processing worker for podcast recordings.
 
 Polls the `processing_jobs` table and dispatches on `job_type`:
   * `reconstruct` — concatenate uploaded batches into a single WebM.
-  * `transcribe`  — run faster-whisper on the reconstructed file, store
-                    transcript_text + segments on podcast.recordings.
   * `composite`   — ffmpeg side-by-side of all ready recordings in a session,
                     store under podcast.session_composites.
 
@@ -33,7 +31,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import numpy as np
 from supabase import Client, create_client
 
 from sweep import final_path, plan_sweep
@@ -43,20 +40,11 @@ POLL_INTERVAL_SEC = float(os.environ.get("WORKER_POLL_INTERVAL_SEC", "5"))
 SWEEP_INTERVAL_SEC = float(os.environ.get("WORKER_SWEEP_INTERVAL_SEC", "60"))
 MAX_ATTEMPTS = int(os.environ.get("WORKER_MAX_ATTEMPTS", "3"))
 
-# Transcription knobs
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
-WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
-WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
-WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE") or None  # None = auto-detect
-WHISPER_EXPECTED_LANGUAGES = tuple(
-    x.strip() for x in os.environ.get("WHISPER_EXPECTED_LANGUAGES", "ar,en").split(",") if x.strip()
-)
-
 # Composite knobs — tunable via env
 COMPOSITE_WIDTH = int(os.environ.get("COMPOSITE_WIDTH", "1920"))
 COMPOSITE_HEIGHT = int(os.environ.get("COMPOSITE_HEIGHT", "1080"))
 
-JOB_TYPES = ("reconstruct", "transcribe", "composite")
+JOB_TYPES = ("reconstruct", "composite")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,7 +53,6 @@ logging.basicConfig(
 log = logging.getLogger("worker")
 
 _stop = False
-_whisper_model = None  # lazy-loaded
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -177,26 +164,14 @@ def process_reconstruct(db: Client, job: dict) -> None:
             "total_bytes": total,
             "duration_seconds": duration,
             "updated_at": _now_iso(),
-            "transcript_status": "pending",
         }
     ).eq("id", recording_id).execute()
     db.schema("podcast").table("processing_jobs").update(
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
 
-    # Auto-enqueue transcription for this recording.
-    db.schema("podcast").table("processing_jobs").insert(
-        {
-            "id": str(uuid4()),
-            "recording_id": recording_id,
-            "job_type": "transcribe",
-            "status": "pending",
-            "attempts": 0,
-        }
-    ).execute()
-
     log.info(
-        "job %s: done — recording %s ready (%d bytes, %ss), transcribe enqueued",
+        "job %s: done — recording %s ready (%d bytes, %ss)",
         job["id"], recording_id, total, duration,
     )
 
@@ -247,138 +222,6 @@ def _remux_with_index(src: Path, dst: Path) -> tuple[Path, float | None]:
             return dst, _probe_duration(dst)
         log.warning("remux attempt failed (rc=%s): %s", r.returncode, r.stderr[-500:])
     return src, _probe_duration(src)
-
-
-# ---------------------------------------------------------------------------
-# transcribe
-# ---------------------------------------------------------------------------
-
-def _load_whisper():
-    global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel  # heavy import, lazy
-        log.info(
-            "loading faster-whisper model=%s device=%s compute=%s",
-            WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE,
-        )
-        _whisper_model = WhisperModel(
-            WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE
-        )
-    return _whisper_model
-
-
-def _decode_audio_to_f32_mono(path: str, sampling_rate: int = 16000) -> np.ndarray:
-    """Decode any media file to float32 mono PCM at `sampling_rate` using ffmpeg.
-
-    Pipes 16-bit little-endian signed PCM to stdout, then rescales to float32
-    in [-1.0, 1.0]. Avoids PyAV entirely (the version faster-whisper bundles
-    uses a kwarg that av 19 removed)."""
-    cmd = [
-        _ffmpeg_bin(), "-nostdin", "-threads", "0",
-        "-i", path,
-        "-f", "s16le",
-        "-ac", "1",
-        "-ar", str(sampling_rate),
-        "-acodec", "pcm_s16le",
-        "-loglevel", "error",
-        "-",
-    ]
-    r = subprocess.run(cmd, capture_output=True, check=False)
-    if r.returncode != 0:
-        raise RuntimeError(f"ffmpeg audio decode failed: {r.stderr.decode(errors='replace')[-500:]}")
-    arr = np.frombuffer(r.stdout, dtype=np.int16)
-    return arr.astype(np.float32) / 32768.0
-
-
-def process_transcribe(db: Client, job: dict) -> None:
-    recording_id = job["recording_id"]
-    log.info("job %s: transcribing recording %s", job["id"], recording_id)
-
-    recording = (
-        db.schema("podcast").table("recordings")
-        .select("final_storage_path, transcript_status")
-        .eq("id", recording_id)
-        .single()
-        .execute()
-    )
-    final_path = recording.data.get("final_storage_path")
-    if not final_path:
-        raise RuntimeError(f"recording {recording_id} has no final_storage_path")
-
-    db.schema("podcast").table("recordings").update(
-        {"transcript_status": "processing", "transcript_error": None}
-    ).eq("id", recording_id).execute()
-
-    # Download the reconstructed file to a temp path.
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as out:
-        tmp_path = out.name
-        data = db.storage.from_(BUCKET).download(final_path)
-        out.write(data)
-
-    try:
-        # faster-whisper 1.2.1 relies on PyAV with a kwarg that av 19 removed,
-        # so we decode to 16 kHz mono PCM via ffmpeg ourselves and feed the
-        # numpy array directly — bypasses faster-whisper.audio.decode_audio.
-        audio = _decode_audio_to_f32_mono(tmp_path, sampling_rate=16000)
-        model = _load_whisper()
-
-        def run(language: str | None):
-            return model.transcribe(
-                audio,
-                language=language,
-                vad_filter=True,
-                beam_size=1,
-                word_timestamps=True,
-            )
-
-        segments_iter, info = run(WHISPER_LANGUAGE)
-        # Auto-detect misfires on short or quiet clips (a 10s Arabic take came
-        # back as Kannada). Outside the expected languages, redo in the first.
-        if not WHISPER_LANGUAGE and info.language not in WHISPER_EXPECTED_LANGUAGES:
-            log.info("job %s: detected %s (p=%.2f), retrying as %s", job["id"],
-                     info.language, info.language_probability, WHISPER_EXPECTED_LANGUAGES[0])
-            segments_iter, info = run(WHISPER_EXPECTED_LANGUAGES[0])
-        segments = []
-        parts: list[str] = []
-        for seg in segments_iter:
-            segments.append(
-                {
-                    "start": round(seg.start, 3),
-                    "end": round(seg.end, 3),
-                    "text": seg.text,
-                    # Short keys: one entry per word adds up over an hour.
-                    "words": [
-                        {"s": round(w.start, 2), "e": round(w.end, 2), "w": w.word}
-                        for w in (seg.words or [])
-                    ],
-                }
-            )
-            parts.append(seg.text)
-        full_text = "".join(parts).strip()
-
-        db.schema("podcast").table("recordings").update(
-            {
-                "transcript_status": "ready",
-                "transcript_language": info.language,
-                "transcript_text": full_text,
-                "transcript_segments": segments,
-                "transcript_error": None,
-                "updated_at": _now_iso(),
-            }
-        ).eq("id", recording_id).execute()
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    db.schema("podcast").table("processing_jobs").update(
-        {"status": "completed", "completed_at": _now_iso(), "error_message": None}
-    ).eq("id", job["id"]).execute()
-    log.info(
-        "job %s: transcription done — recording %s lang=%s chars=%d",
-        job["id"], recording_id, info.language, len(full_text),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -661,10 +504,6 @@ def fail_job(db: Client, job: dict, err: Exception) -> None:
         db.schema("podcast").table("recordings").update({"status": "error"}).eq(
             "id", job["recording_id"]
         ).execute()
-    elif jt == "transcribe" and job.get("recording_id"):
-        db.schema("podcast").table("recordings").update(
-            {"transcript_status": "error", "transcript_error": message}
-        ).eq("id", job["recording_id"]).execute()
     elif jt == "composite" and job.get("session_id"):
         db.schema("podcast").table("session_composites").update(
             {"status": "error", "error_message": message, "updated_at": _now_iso()}
@@ -705,8 +544,6 @@ def main() -> None:
             jt = job["job_type"]
             if jt == "reconstruct":
                 process_reconstruct(db, job)
-            elif jt == "transcribe":
-                process_transcribe(db, job)
             elif jt == "composite":
                 process_composite(db, job)
             else:

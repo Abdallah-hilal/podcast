@@ -42,21 +42,6 @@ export interface RegisterBatchResponse {
   storage_path: string;
 }
 
-export interface TranscriptSegment {
-  start: number;
-  end: number;
-  text: string;
-}
-
-export interface TranscriptResponse {
-  recording_id: string;
-  status: "none" | "pending" | "processing" | "ready" | "error";
-  language: string | null;
-  text: string | null;
-  segments: TranscriptSegment[] | null;
-  error: string | null;
-}
-
 export interface CompositeStatusResponse {
   session_id: string;
   status: "none" | "pending" | "processing" | "ready" | "error";
