@@ -26,6 +26,8 @@ export interface JoinSessionResponse {
   livekit_token: string;
   livekit_url: string;
   room_name: string;
+  /** This user owns the session → controls recording for everyone. */
+  is_host: boolean;
 }
 
 export interface StartRecordingResponse {

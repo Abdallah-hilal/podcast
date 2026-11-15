@@ -56,6 +56,14 @@ export function joinSession(token: string, sessionId: string) {
   });
 }
 
+/** Host-only: flips the room-wide recording switch every participant follows. */
+export function setRoomRecording(token: string, sessionId: string, recording: boolean) {
+  return request<{ recording: boolean; run: string | null }>(
+    `/api/v1/sessions/${sessionId}/recording`,
+    { method: "POST", body: JSON.stringify({ recording }), token },
+  );
+}
+
 export function startRecording(
   token: string,
   sessionId: string,

@@ -41,6 +41,15 @@ interface Props {
   onChangeLocalSave?: () => void;
   /** Filename currently teed to; null when no local copy is being written. */
   localSaveFilename?: string | null;
+  /** Host gets the Record/Stop button that drives everyone; guests get a
+   *  read-only status pill. */
+  isHost: boolean;
+  /** The room-wide recording switch (LiveKit room metadata) is on. */
+  switchOn: boolean;
+  /** Host's Record/Stop request is in flight. */
+  switchPending?: boolean;
+  /** Last Record/Stop request failure, shown above the bar. */
+  switchError?: string | null;
 }
 
 export function ControlBar({
@@ -53,6 +62,10 @@ export function ControlBar({
   lockDeviceToggles = false,
   onChangeLocalSave,
   localSaveFilename,
+  isHost,
+  switchOn,
+  switchPending = false,
+  switchError = null,
 }: Props) {
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
@@ -90,32 +103,60 @@ export function ControlBar({
 
       <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 
-      {isRecording ? (
+      {switchError && (
+        <div
+          role="alert"
+          className="appear absolute -top-11 left-1/2 -translate-x-1/2 max-w-[90vw] truncate bg-coral-700 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg"
+        >
+          {switchError}
+        </div>
+      )}
+
+      {!isHost ? (
+        <GuestRecordStatus
+          recState={recState}
+          elapsedMs={elapsedMs}
+          switchOn={switchOn}
+          canRecord={canRecord}
+        />
+      ) : switchOn ? (
+        // Host: Stop turns the room switch off; everyone's recorder follows.
         <button
           onClick={onStop}
-          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg hover:shadow-xl"
+          disabled={switchPending}
+          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-70 rounded-full text-white font-bold shadow-lg hover:shadow-xl"
         >
           <StopIcon className="w-3 h-3" />
           <span className="text-sm tabular-nums tracking-tight">
-            Stop · {fmt(elapsedMs)}
+            {switchPending
+              ? "Stopping…"
+              : isRecording
+                ? `Stop · ${fmt(elapsedMs)}`
+                : "Stop recording"}
           </span>
         </button>
       ) : (
         <button
           onClick={onRecord}
-          disabled={isBusy || !canRecord}
-          title={!canRecord ? "Turn on mic or camera first" : undefined}
+          disabled={isBusy || switchPending}
+          title={
+            !canRecord
+              ? "Your mic and camera are off — guests will still record"
+              : "Starts recording for everyone in the room"
+          }
           className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10 rounded-full text-white font-bold ring-1 ring-white/10"
         >
           <RecordIcon className="w-3 h-3 text-coral-500" />
           <span className="text-sm tracking-tight">
-            {isBusy
-              ? recState === "uploading"
-                ? "Uploading…"
-                : "Finalizing…"
-              : recState === "complete"
-                ? "Record again"
-                : "Record"}
+            {switchPending
+              ? "Starting…"
+              : isBusy
+                ? recState === "uploading"
+                  ? "Uploading…"
+                  : "Finalizing…"
+                : recState === "complete"
+                  ? "Record again"
+                  : "Record"}
           </span>
         </button>
       )}
@@ -209,5 +250,60 @@ function IconToggle({
     >
       {on ? onIcon : offIcon}
     </button>
+  );
+}
+
+/** Guests don't control recording — the host does. This pill tells them
+ *  whether they're being recorded right now. */
+function GuestRecordStatus({
+  recState,
+  elapsedMs,
+  switchOn,
+  canRecord,
+}: {
+  recState: PipelineState;
+  elapsedMs: number;
+  switchOn: boolean;
+  canRecord: boolean;
+}) {
+  if (recState === "recording") {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 pl-3.5 pr-4 py-2.5 bg-coral-600 rounded-full text-white font-bold shadow-lg"
+      >
+        <span className="relative flex w-2.5 h-2.5" aria-hidden>
+          <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
+          <span className="relative rounded-full bg-white w-2.5 h-2.5" />
+        </span>
+        <span className="text-sm tabular-nums tracking-tight">
+          Recording · {fmt(elapsedMs)}
+        </span>
+        <span className="hidden sm:inline text-xs font-semibold text-white/80">
+          started by the host
+        </span>
+      </div>
+    );
+  }
+  const text =
+    recState === "stopping"
+      ? "Finalizing…"
+      : recState === "uploading"
+        ? "Uploading your recording…"
+        : switchOn && !canRecord
+          ? "Turn on your mic or camera to record"
+          : switchOn
+            ? "Starting recording…"
+            : recState === "complete"
+              ? "Saved · waiting for the host"
+              : "Waiting for the host to start recording";
+  return (
+    <div
+      role="status"
+      className="flex items-center gap-2 px-4 py-2.5 bg-white/10 rounded-full text-white/85 text-sm font-semibold tracking-tight ring-1 ring-white/10"
+    >
+      <RecordIcon className="w-3 h-3 text-coral-500" />
+      {text}
+    </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
+import { LiveKitRoom, RoomAudioRenderer, useRoomInfo } from "@livekit/components-react";
 import { VideoPresets, type VideoCaptureOptions } from "livekit-client";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
@@ -19,6 +19,7 @@ import {
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
+import { parseRoomSwitch, decideSwitchAction } from "@/lib/recording/hostSwitch";
 import {
   getRecordingStream,
   checkRecordingSupport,
@@ -203,6 +204,16 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     if (!session) throw new Error("Session expired, please sign in again");
     return session.access_token;
   }, [supabase]);
+
+  // Host-only: flip the room-wide switch. Every client (host included)
+  // starts/stops its own recorder by watching the room metadata this writes.
+  const setRoomSwitch = useCallback(
+    async (recording: boolean) => {
+      const token = await getFreshToken();
+      await api.setRoomRecording(token, sessionId, recording);
+    },
+    [getFreshToken, sessionId],
+  );
 
   const handleStartRecording = useCallback(
     async (stream: MediaStream, ownsStream: boolean) => {
@@ -630,6 +641,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           )}
         </div>
         <RoomRecordingControls
+          isHost={!!joinInfo!.is_host}
+          onSetSwitch={setRoomSwitch}
           recState={pipelineState}
           elapsedMs={progress.elapsedMs}
           onStartRecording={handleStartRecording}
@@ -743,6 +756,8 @@ function DownloadRecordingBadge({
  * share the same mic/camera the video call is using (no second getUserMedia).
  */
 function RoomRecordingControls({
+  isHost,
+  onSetSwitch,
   recState,
   elapsedMs,
   onStartRecording,
@@ -751,27 +766,90 @@ function RoomRecordingControls({
   onChangeLocalSave,
   localSaveFilename,
 }: {
+  isHost: boolean;
+  onSetSwitch: (recording: boolean) => Promise<void>;
   recState: PipelineState;
   elapsedMs: number;
   onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
-  onStop: () => void;
+  onStop: () => Promise<void> | void;
   onLeave: () => void;
   onChangeLocalSave?: () => void;
   localSaveFilename?: string | null;
 }) {
   const { buildStream, isReady } = useRecordingStream();
-  const handleRecord = useCallback(() => {
-    const stream = buildStream();
-    void onStartRecording(stream, false);
-  }, [buildStream, onStartRecording]);
+
+  // The host's switch, read from LiveKit room metadata. Late joiners and
+  // refreshed tabs get the current value on connect.
+  const { metadata } = useRoomInfo();
+  const sw = useMemo(() => parseRoomSwitch(metadata), [metadata]);
+
+  // Follow the switch. lastStartedRun is set BEFORE start() resolves so a
+  // re-render mid-start can't launch a second recorder for the same run.
+  const lastStartedRun = useRef<string | null>(null);
+  const stopInFlight = useRef(false);
+  useEffect(() => {
+    const action = decideSwitchAction({
+      sw,
+      state: recState,
+      lastStartedRun: lastStartedRun.current,
+      ready: isReady,
+    });
+    if (action === "start") {
+      lastStartedRun.current = sw.run;
+      void onStartRecording(buildStream(), false);
+    } else if (action === "stop" && !stopInFlight.current) {
+      stopInFlight.current = true;
+      void Promise.resolve(onStop()).finally(() => {
+        stopInFlight.current = false;
+      });
+    }
+  }, [sw, recState, isReady, buildStream, onStartRecording, onStop]);
+
+  const [switchPending, setSwitchPending] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const flip = useCallback(
+    async (recording: boolean) => {
+      setSwitchPending(true);
+      setSwitchError(null);
+      try {
+        await onSetSwitch(recording);
+      } catch (e) {
+        setSwitchError(
+          `Couldn't ${recording ? "start" : "stop"} recording: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      } finally {
+        setSwitchPending(false);
+      }
+    },
+    [onSetSwitch],
+  );
+
+  // Host leaving mid-recording ends the recording for everyone; a dropped
+  // connection (no Leave click) deliberately does not.
+  const handleLeave = useCallback(async () => {
+    if (isHost && sw.recording) {
+      try {
+        await onSetSwitch(false);
+      } catch (e) {
+        console.warn("Couldn't turn the room recording off on leave:", e);
+      }
+    }
+    onLeave();
+  }, [isHost, sw.recording, onSetSwitch, onLeave]);
 
   return (
     <ControlBar
+      isHost={isHost}
+      switchOn={sw.recording}
+      switchPending={switchPending}
+      switchError={switchError}
       recState={recState}
       elapsedMs={elapsedMs}
-      onRecord={handleRecord}
-      onStop={onStop}
-      onLeave={onLeave}
+      onRecord={() => void flip(true)}
+      onStop={() => void flip(false)}
+      onLeave={() => void handleLeave()}
       canRecord={isReady}
       lockDeviceToggles={recState === "recording"}
       onChangeLocalSave={onChangeLocalSave}
