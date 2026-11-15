@@ -25,6 +25,7 @@ import {
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
+import { createSingleFlight } from "@/lib/singleFlight";
 import {
   parseRoomSwitch,
   decideSwitchAction,
@@ -250,7 +251,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     [sessionId, authed, getFreshToken, preChoice]
   );
 
-  const handleStopRecording = useCallback(async () => {
+  const stopRecordingImpl = useCallback(async () => {
     try {
       await pipelineRef.current.stop();
     } catch (err) {
@@ -338,10 +339,21 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     }
   }, [sessionTitle]);
 
+  // One stop at a time: the host's switch turning off and a Leave click can
+  // both ask to stop. Single-flight makes the second caller wait on the
+  // first one's upload instead of seeing "stopping" and leaving early.
+  const [stopFlight] = useState(() => createSingleFlight<void>());
+  const handleStopRecording = useCallback(
+    () => stopFlight(stopRecordingImpl),
+    [stopFlight, stopRecordingImpl],
+  );
+
   const handleLeave = useCallback(async () => {
     // Route Leave-while-recording through the same stop path so the
-    // auto-download fires once (and only once) per recording.
-    if (pipelineRef.current.state === "recording") {
+    // auto-download fires once (and only once) per recording — and wait
+    // for a stop already in flight (e.g. started by the host's switch).
+    const s = pipelineRef.current.state;
+    if (s === "recording" || s === "stopping" || s === "uploading") {
       await handleStopRecording();
     }
     // Explicit leave clears the resume-on-refresh breadcrumb — otherwise
