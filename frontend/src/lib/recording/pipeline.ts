@@ -11,6 +11,7 @@ import {
 import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
 import {
+  canDiscardLocalCopy,
   newManifest,
   takeLockName,
   withFinalized,
@@ -618,6 +619,9 @@ export class RecordingPipeline {
    * multiple times; a cleanup failure is non-fatal.
    */
   async releaseLocalChunks(): Promise<void> {
+    // After a failed upload the chunks are the only full copy; leave them
+    // (and the manifest) for the next visit's recovery to finish.
+    if (!canDiscardLocalCopy(this._state)) return;
     try {
       await this.store.cleanup();
     } catch (err) {

@@ -4,6 +4,8 @@
  * each sealed batch covers and whether it reached the server, so a page
  * that comes back after a refresh or crash can finish the take (recovery.ts).
  */
+import type { PipelineState } from "@/types";
+
 /** Web Lock held for a take's whole life; recovery skips locked takes. */
 export const takeLockName = (recordingId: string) => `podcast-take-${recordingId}`;
 
@@ -59,4 +61,10 @@ export function parseManifest(text: string): TakeManifest | null {
     /* corrupt */
   }
   return null;
+}
+
+/** A take's OPFS copy may go only once the server has the whole take;
+ *  after a failed upload it stays so the next visit's recovery retries. */
+export function canDiscardLocalCopy(state: PipelineState): boolean {
+  return state === "complete";
 }

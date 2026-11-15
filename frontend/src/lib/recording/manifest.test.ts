@@ -41,3 +41,11 @@ test("parseManifest rejects anything that isn't a v1 manifest", () => {
   const ok = JSON.stringify(newManifest("r1", "s1"));
   assert.deepEqual(parseManifest(ok), newManifest("r1", "s1"));
 });
+
+test("the local copy may be deleted only after the take finished uploading", async () => {
+  const { canDiscardLocalCopy } = await import("./manifest.ts");
+  assert.equal(canDiscardLocalCopy("complete"), true);
+  for (const s of ["error", "uploading", "stopping", "recording", "idle"] as const) {
+    assert.equal(canDiscardLocalCopy(s), false, s);
+  }
+});
