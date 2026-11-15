@@ -12,14 +12,12 @@ import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
 import {
   newManifest,
+  takeLockName,
   withFinalized,
   withSealed,
   withUploaded,
   type TakeManifest,
 } from "./manifest";
-
-/** Web Lock held for a take's whole life; recovery skips locked takes. */
-export const takeLockName = (recordingId: string) => `podcast-take-${recordingId}`;
 
 // 8 Mbps during the live call — enough headroom for a 1080p recording's
 // upload to keep up and most of a 4K one, while leaving bandwidth for
@@ -127,6 +125,11 @@ export class RecordingPipeline {
 
   get state(): PipelineState {
     return this._state;
+  }
+
+  /** The take this pipeline is recording/uploading right now, if any. */
+  get currentRecordingId(): string | null {
+    return this.recordingId;
   }
 
   private setState(state: PipelineState) {

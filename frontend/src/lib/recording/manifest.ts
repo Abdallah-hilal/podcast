@@ -4,6 +4,9 @@
  * each sealed batch covers and whether it reached the server, so a page
  * that comes back after a refresh or crash can finish the take (recovery.ts).
  */
+/** Web Lock held for a take's whole life; recovery skips locked takes. */
+export const takeLockName = (recordingId: string) => `podcast-take-${recordingId}`;
+
 export type ManifestBatch = {
   seq: number;
   start: number; // first chunk index (inclusive)

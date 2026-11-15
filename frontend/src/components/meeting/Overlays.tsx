@@ -86,3 +86,16 @@ export function UploadBadge({
     </div>
   );
 }
+
+/** Shown while an earlier take left behind by a refresh/crash is uploading. */
+export function RecoveryBadge({ percent }: { percent: number }) {
+  return (
+    <div
+      role="status"
+      className="appear absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/70 text-white border border-white/10 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium shadow-lg tracking-tight"
+    >
+      <span className="w-2 h-2 rounded-full bg-teal-300 animate-pulse" aria-hidden />
+      <span className="tabular-nums">Recovering an earlier recording · {percent}%</span>
+    </div>
+  );
+}

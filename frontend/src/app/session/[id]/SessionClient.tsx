@@ -15,7 +15,11 @@ import * as api from "@/lib/api";
 import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
 import { VideoGrid } from "@/components/meeting/VideoGrid";
 import { ControlBar } from "@/components/meeting/ControlBar";
-import { RecBadge, UploadBadge } from "@/components/meeting/Overlays";
+import { RecBadge, RecoveryBadge, UploadBadge } from "@/components/meeting/Overlays";
+import {
+  recoverLeftoverTakes,
+  type RecoveryProgress,
+} from "@/lib/recording/recoverLeftoverTakes";
 import { InviteButton } from "@/components/meeting/InviteButton";
 import { ParticipantsBadge } from "@/components/meeting/ParticipantsBadge";
 import {
@@ -219,6 +223,21 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     if (!session) throw new Error("Session expired, please sign in again");
     return session.access_token;
   }, [supabase]);
+
+  // Finish any take an earlier page left behind (refresh, crash, closed
+  // tab) — once per page load, in the background, throttled like live
+  // uploads. Takes live in another tab are skipped via their Web Lock.
+  const [recovery, setRecovery] = useState<RecoveryProgress>({ active: false, percent: 0 });
+  const recoveryStarted = useRef(false);
+  useEffect(() => {
+    if (!authed || recoveryStarted.current) return;
+    recoveryStarted.current = true;
+    void recoverLeftoverTakes({
+      getToken: getFreshToken,
+      isLive: (id) => pipelineRef.current.currentRecordingId === id,
+      onProgress: setRecovery,
+    }).catch((e) => console.warn("Take recovery failed:", e));
+  }, [authed, getFreshToken]);
 
   // Host-only: flip the room-wide switch. Every client (host included)
   // starts/stops its own recorder by watching the room metadata this writes.
@@ -538,6 +557,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           {pipelineState === "recording" && (
             <RecBadge elapsedMs={progress.elapsedMs} />
           )}
+          {recovery.active && <RecoveryBadge percent={recovery.percent} />}
           <UploadBadge
             state={pipelineState}
             batchesUploaded={progress.batchesUploaded}
@@ -637,6 +657,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           {pipelineState === "recording" && (
             <RecBadge elapsedMs={progress.elapsedMs} />
           )}
+          {recovery.active && <RecoveryBadge percent={recovery.percent} />}
           <UploadBadge
             state={pipelineState}
             batchesUploaded={progress.batchesUploaded}

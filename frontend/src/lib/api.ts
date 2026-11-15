@@ -10,6 +10,17 @@ import type {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+/** Non-2xx response; `status` lets callers tell "gone/closed" from flaky. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit & { token: string }
@@ -26,7 +37,7 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `API error ${res.status}`);
+    throw new ApiError(body.detail || `API error ${res.status}`, res.status);
   }
 
   // 204 No Content (used by DELETE) has no body to parse.
