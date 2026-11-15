@@ -2,6 +2,7 @@
 
 import {
   VideoTrack,
+  useParticipantAttributes,
   useSpeakingParticipants,
   type TrackReferenceOrPlaceholder,
 } from "@livekit/components-react";
@@ -64,6 +65,8 @@ export function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceh
         </div>
       )}
 
+      <RecStatusChip participant={participant} />
+
       <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between pointer-events-none">
         <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md rounded-full px-3 py-1.5 max-w-full ring-1 ring-white/10">
           {muted && <MicOffIcon className="w-3.5 h-3.5 text-coral-500 shrink-0" />}
@@ -73,6 +76,37 @@ export function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceh
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Each client publishes `rec` / `up` participant attributes from its own
+ * recorder. This chip lets the host see that a guest is actually recording,
+ * and when their upload has finished (safe to hang up).
+ */
+function RecStatusChip({ participant }: { participant: Participant }) {
+  const { attributes } = useParticipantAttributes({ participant });
+  const rec = attributes?.rec;
+  const up = attributes?.up ?? "0";
+  if (!rec || rec === "idle") return null;
+
+  const { text, cls } =
+    rec === "recording"
+      ? { text: "● REC", cls: "bg-coral-600/95 text-white" }
+      : rec === "uploading"
+        ? { text: `↑ Uploading ${up}%`, cls: "bg-black/70 text-white" }
+        : rec === "done"
+          ? { text: "✓ Saved", cls: "bg-teal-900/85 text-teal-100" }
+          : { text: "⚠ Upload failed", cls: "bg-coral-700 text-white" };
+
+  return (
+    <div
+      role="status"
+      aria-label={`${participant.name || "Participant"}: ${text}`}
+      className={`appear absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide tabular-nums shadow-lg ring-1 ring-white/10 backdrop-blur-md pointer-events-none ${cls}`}
+    >
+      {text}
     </div>
   );
 }

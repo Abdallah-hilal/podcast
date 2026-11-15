@@ -1,7 +1,13 @@
 // Run: node --test src/lib/recording/hostSwitch.test.ts  (Node 26 strips TS types)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRoomSwitch, decideSwitchAction, recStatusAttr } from "./hostSwitch.ts";
+import {
+  parseRoomSwitch,
+  decideSwitchAction,
+  recStatusAttr,
+  uploadPercent,
+  shouldPublishStatus,
+} from "./hostSwitch.ts";
 
 const ON = { recording: true, run: "r1" };
 const OFF = { recording: false, run: null };
@@ -60,4 +66,22 @@ test("recStatusAttr maps pipeline state to the tile status", () => {
   assert.equal(recStatusAttr("uploading"), "uploading");
   assert.equal(recStatusAttr("complete"), "done");
   assert.equal(recStatusAttr("error"), "error");
+});
+
+test("uploadPercent is bytes uploaded over bytes recorded, clamped 0-100", () => {
+  assert.equal(uploadPercent(0, 0), 0);
+  assert.equal(uploadPercent(50, 200), 25);
+  assert.equal(uploadPercent(199, 200), 100); // 99.5 rounds up
+  assert.equal(uploadPercent(197, 200), 99);
+  assert.equal(uploadPercent(300, 200), 100);
+  assert.equal(uploadPercent(-5, 200), 0);
+});
+
+test("shouldPublishStatus: on state change, 5-point moves, and reaching 100", () => {
+  assert.equal(shouldPublishStatus(null, { rec: "idle", up: 0 }), true);
+  assert.equal(shouldPublishStatus({ rec: "recording", up: 0 }, { rec: "uploading", up: 0 }), true);
+  assert.equal(shouldPublishStatus({ rec: "uploading", up: 10 }, { rec: "uploading", up: 14 }), false);
+  assert.equal(shouldPublishStatus({ rec: "uploading", up: 10 }, { rec: "uploading", up: 15 }), true);
+  assert.equal(shouldPublishStatus({ rec: "uploading", up: 97 }, { rec: "uploading", up: 100 }), true);
+  assert.equal(shouldPublishStatus({ rec: "done", up: 100 }, { rec: "done", up: 100 }), false);
 });

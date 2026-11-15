@@ -2,8 +2,14 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { LiveKitRoom, RoomAudioRenderer, useRoomInfo } from "@livekit/components-react";
-import { VideoPresets, type VideoCaptureOptions } from "livekit-client";
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  useConnectionState,
+  useLocalParticipant,
+  useRoomInfo,
+} from "@livekit/components-react";
+import { ConnectionState, VideoPresets, type VideoCaptureOptions } from "livekit-client";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
@@ -19,7 +25,14 @@ import {
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { RecordingPipeline } from "@/lib/recording/pipeline";
-import { parseRoomSwitch, decideSwitchAction } from "@/lib/recording/hostSwitch";
+import {
+  parseRoomSwitch,
+  decideSwitchAction,
+  recStatusAttr,
+  uploadPercent,
+  shouldPublishStatus,
+  type PublishedStatus,
+} from "@/lib/recording/hostSwitch";
 import {
   getRecordingStream,
   checkRecordingSupport,
@@ -645,6 +658,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           onSetSwitch={setRoomSwitch}
           recState={pipelineState}
           elapsedMs={progress.elapsedMs}
+          bytesRecorded={progress.bytesRecorded}
+          bytesUploaded={progress.bytesUploaded}
           onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
@@ -760,6 +775,8 @@ function RoomRecordingControls({
   onSetSwitch,
   recState,
   elapsedMs,
+  bytesRecorded,
+  bytesUploaded,
   onStartRecording,
   onStop,
   onLeave,
@@ -770,6 +787,8 @@ function RoomRecordingControls({
   onSetSwitch: (recording: boolean) => Promise<void>;
   recState: PipelineState;
   elapsedMs: number;
+  bytesRecorded: number;
+  bytesUploaded: number;
   onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
   onStop: () => Promise<void> | void;
   onLeave: () => void;
@@ -777,6 +796,28 @@ function RoomRecordingControls({
   localSaveFilename?: string | null;
 }) {
   const { buildStream, isReady } = useRecordingStream();
+
+  // Publish this person's recording/upload status as participant
+  // attributes; every tile in the room renders a chip from them. Reset
+  // the throttle on (re)connect so the room always gets a fresh value.
+  const { localParticipant } = useLocalParticipant();
+  const connection = useConnectionState();
+  const published = useRef<PublishedStatus | null>(null);
+  useEffect(() => {
+    if (connection !== ConnectionState.Connected) {
+      published.current = null;
+      return;
+    }
+    const next: PublishedStatus = {
+      rec: recStatusAttr(recState),
+      up: recState === "complete" ? 100 : uploadPercent(bytesUploaded, bytesRecorded),
+    };
+    if (!shouldPublishStatus(published.current, next)) return;
+    published.current = next;
+    localParticipant
+      .setAttributes({ rec: next.rec, up: String(next.up) })
+      .catch((e) => console.warn("Couldn't publish recording status:", e));
+  }, [connection, recState, bytesUploaded, bytesRecorded, localParticipant]);
 
   // The host's switch, read from LiveKit room metadata. Late joiners and
   // refreshed tabs get the current value on connect.

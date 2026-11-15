@@ -65,3 +65,19 @@ export function recStatusAttr(state: PipelineState): RecStatus {
       return "idle";
   }
 }
+
+/** Share of this take that has reached the server, 0–100. */
+export function uploadPercent(bytesUploaded: number, bytesRecorded: number): number {
+  if (bytesRecorded <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((bytesUploaded / bytesRecorded) * 100)));
+}
+
+export type PublishedStatus = { rec: RecStatus; up: number };
+
+/** Throttle for setAttributes: publish on a status change, a ≥5-point
+ *  upload move, or reaching 100 — not on every 500 ms progress tick. */
+export function shouldPublishStatus(prev: PublishedStatus | null, next: PublishedStatus): boolean {
+  if (!prev || prev.rec !== next.rec) return true;
+  if (next.up === prev.up) return false;
+  return Math.abs(next.up - prev.up) >= 5 || next.up === 100;
+}
