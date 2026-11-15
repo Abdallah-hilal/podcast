@@ -10,6 +10,16 @@ import {
 } from "./mediaRecorder";
 import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
+import {
+  newManifest,
+  withFinalized,
+  withSealed,
+  withUploaded,
+  type TakeManifest,
+} from "./manifest";
+
+/** Web Lock held for a take's whole life; recovery skips locked takes. */
+export const takeLockName = (recordingId: string) => `podcast-take-${recordingId}`;
 
 // 8 Mbps during the live call — enough headroom for a 1080p recording's
 // upload to keep up and most of a 4K one, while leaving bandwidth for
@@ -46,6 +56,11 @@ export class RecordingPipeline {
   // can wait for the final chunk to land before sealing the last batch.
   private chunkChain: Promise<void> = Promise.resolve();
   private inflightUploads = new Map<string, Promise<void>>();
+  // OPFS manifest (see manifest.ts): which chunk ranges were sealed and
+  // uploaded, so a returning page can finish this take after a crash.
+  private manifest: TakeManifest | null = null;
+  private manifestChain: Promise<void> = Promise.resolve();
+  private releaseLock: (() => void) | null = null;
   // Called before every backend API call and every TUS upload to pull a
   // fresh Supabase JWT. Avoids baking a token at start() that would expire
   // after an hour mid-session and silently 401 every upload.
@@ -257,7 +272,42 @@ export class RecordingPipeline {
     this.lastError = undefined;
     this.chunkChain = Promise.resolve();
     this.inflightUploads = new Map();
+    this.dropTakeLock();
+    this.manifest = null;
+    this.manifestChain = Promise.resolve();
     this._state = "idle";
+  }
+
+  /** Persist the next manifest snapshot; writes stay in order. */
+  private saveManifest(next: TakeManifest): void {
+    this.manifest = next;
+    const store = this.store;
+    this.manifestChain = this.manifestChain
+      .then(() => store.writeManifest(next))
+      .catch((e) => console.warn("Couldn't save take manifest:", e));
+  }
+
+  /** Hold this take's Web Lock until stop settles (or the page dies, which
+   *  releases it automatically) so recovery in another tab leaves it alone. */
+  private async holdTakeLock(recordingId: string): Promise<void> {
+    if (typeof navigator === "undefined" || !navigator.locks) return;
+    await new Promise<void>((held) => {
+      navigator.locks
+        .request(
+          takeLockName(recordingId),
+          () =>
+            new Promise<void>((release) => {
+              this.releaseLock = release;
+              held();
+            }),
+        )
+        .catch(() => held());
+    });
+  }
+
+  private dropTakeLock(): void {
+    this.releaseLock?.();
+    this.releaseLock = null;
   }
 
   /**
@@ -334,6 +384,8 @@ export class RecordingPipeline {
     this.recordingId = recording.recording_id;
 
     await this.store.init(this.recordingId);
+    await this.holdTakeLock(this.recordingId);
+    this.saveManifest(newManifest(this.recordingId, sessionId));
 
     this.uploader.setThrottle(THROTTLE_BPS);
     this.setState("recording");
@@ -387,8 +439,21 @@ export class RecordingPipeline {
     // Feed to batch manager
     const sealed = this.batchManager.addChunk(index, chunk.size);
     if (sealed) {
+      this.recordSealed(sealed);
       void this.attemptUpload(sealed);
     }
+  }
+
+  private recordSealed(b: ReturnType<BatchManager["seal"]>): void {
+    if (!this.manifest) return;
+    this.saveManifest(
+      withSealed(this.manifest, {
+        seq: b.sequenceNumber,
+        start: b.startChunkIndex,
+        end: b.endChunkIndex,
+        size: b.totalSize,
+      }),
+    );
   }
 
   /**
@@ -449,6 +514,7 @@ export class RecordingPipeline {
     token = await this.getToken();
     await api.completeBatch(token, this.recordingId, registered.batch_id);
     this.batchManager.markUploaded(batch.id);
+    if (this.manifest) this.saveManifest(withUploaded(this.manifest, batch.sequenceNumber));
   }
 
   async stop(): Promise<void> {
@@ -480,6 +546,7 @@ export class RecordingPipeline {
 
     // Seal final batch
     const finalBatch = this.batchManager.sealFinal();
+    if (finalBatch) this.recordSealed(finalBatch);
 
     this.setState("uploading");
     this.uploader.setThrottle(null); // Remove throttle
@@ -514,12 +581,19 @@ export class RecordingPipeline {
         `${stillPending.length} batch(es) failed to upload` +
         (this.lastError ? ` (${this.lastError})` : "");
       this.setState("error");
+      // The manifest still lists the failed batches, so the next page load
+      // retries them (recovery.ts). Free the lock so it's allowed to.
+      await this.manifestChain;
+      this.dropTakeLock();
       // Keep the stream live so the caller can decide whether to retry.
       return;
     }
 
     const finalToken = await this.getToken();
     await api.finalizeRecording(finalToken, this.recordingId);
+    if (this.manifest) this.saveManifest(withFinalized(this.manifest));
+    await this.manifestChain;
+    this.dropTakeLock();
 
     // Only stop tracks the pipeline opened itself. A LiveKit-sourced stream
     // stays live — the video call is still in progress.

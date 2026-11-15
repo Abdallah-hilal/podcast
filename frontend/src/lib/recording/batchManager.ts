@@ -14,6 +14,11 @@ export interface Batch {
 }
 
 const TARGET_BATCH_SIZE = 64 * 1024 * 1024; // 64MB
+// ~60 s at the 5 s MediaRecorder timeslice. Uploading every minute keeps
+// the server at most a minute behind, so a take whose browser vanishes is
+// still closed with nearly everything (worker/sweep.py). It also bounds the
+// gap between batch registrations the sweeper uses to tell live from dead.
+const MAX_CHUNKS_PER_BATCH = 12;
 
 export class BatchManager {
   private currentBatch: Batch;
@@ -45,8 +50,9 @@ export class BatchManager {
     this.currentBatch.endChunkIndex = index;
     this.currentBatch.totalSize += size;
     this.currentSize += size;
+    const chunksInBatch = index - this.currentBatch.startChunkIndex + 1;
 
-    if (this.currentSize >= TARGET_BATCH_SIZE) {
+    if (this.currentSize >= TARGET_BATCH_SIZE || chunksInBatch >= MAX_CHUNKS_PER_BATCH) {
       return this.seal();
     }
     return null;
