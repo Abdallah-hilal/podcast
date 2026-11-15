@@ -9,7 +9,8 @@ are the only decisions here.
 
 from __future__ import annotations
 
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from livekit import api
@@ -44,6 +45,9 @@ def create_access_token(
         can_publish=True,
         can_subscribe=True,
         can_publish_data=True,
+        # Lets each client publish its own recording/upload status as
+        # participant attributes, which every tile in the room displays.
+        can_update_own_metadata=True,
         room_admin=is_owner,
     )
     return (
@@ -54,3 +58,25 @@ def create_access_token(
         .with_ttl(TOKEN_TTL)
         .to_jwt()
     )
+
+
+async def set_room_recording(room_name: str, recording: bool) -> dict:
+    """Flip the room-wide recording switch every client follows.
+
+    The switch lives in LiveKit room metadata so it reaches everyone in the
+    room instantly and late joiners receive it on connect. A fresh `run` id
+    on each start lets a client tell a new run from the one it is already
+    recording. Raises if the room isn't live (nobody connected).
+    """
+    meta = {
+        "recording": recording,
+        "run": uuid4().hex if recording else None,
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    async with api.LiveKitAPI(
+        settings.livekit_url, settings.livekit_api_key, settings.livekit_api_secret
+    ) as lk:
+        await lk.room.update_room_metadata(
+            api.UpdateRoomMetadataRequest(room=room_name, metadata=json.dumps(meta))
+        )
+    return meta

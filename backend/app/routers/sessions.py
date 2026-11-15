@@ -84,6 +84,7 @@ class JoinSessionResponse(BaseModel):
     livekit_token: str
     livekit_url: str
     room_name: str
+    is_host: bool = False
 
 
 @router.post("/{session_id}/join", response_model=JoinSessionResponse)
@@ -172,7 +173,42 @@ async def join_session(
         livekit_token=token,
         livekit_url=url,
         room_name=room_name,
+        is_host=is_owner,
     )
+
+
+class RoomRecordingRequest(BaseModel):
+    recording: bool
+
+
+class RoomRecordingResponse(BaseModel):
+    recording: bool
+    run: str | None = None
+
+
+@router.post("/{session_id}/recording", response_model=RoomRecordingResponse)
+async def set_room_recording(
+    session_id: str,
+    body: RoomRecordingRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Host-only: turn recording on/off for everyone in the room. Each
+    client watches the room metadata and starts/stops its own recorder."""
+    db = _get_db()
+    _owner_only(db, session_id, user_id)
+    room = (
+        db.table("sessions").select("room_name").eq("id", session_id).single().execute()
+    )
+    room_name = room.data["room_name"]
+    if not livekit.is_configured() or room_name.startswith("local-"):
+        raise HTTPException(status_code=409, detail="Live call isn't configured for this session")
+    try:
+        meta = await livekit.set_room_recording(room_name, body.recording)
+    except Exception as e:  # LiveKit TwirpError when the room isn't live
+        raise HTTPException(
+            status_code=409, detail=f"Couldn't reach the call room: {e}"
+        ) from e
+    return RoomRecordingResponse(recording=meta["recording"], run=meta["run"])
 
 
 @router.delete("/{session_id}", status_code=204)
