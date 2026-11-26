@@ -20,10 +20,10 @@ function fmtBytes(n: number | null | undefined): string {
 }
 
 const STATUS_PILL: Record<string, { cls: string; label: string }> = {
-  ready: { cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10", label: "Ready" },
-  error: { cls: "bg-coral-600/15 text-coral-700 ring-1 ring-coral-600/30", label: "Error" },
+  ready: { cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20", label: "Ready" },
+  error: { cls: "bg-red-50 text-red-700 ring-1 ring-red-600/20", label: "Error" },
   processing: { cls: "bg-orange-400/20 text-coral-700 ring-1 ring-coral-600/20", label: "Rendering" },
-  pending: { cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20", label: "Queued" },
+  pending: { cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20", label: "Queued" },
   none: { cls: "bg-cream-200 text-ink-muted", label: "Not rendered" },
 };
 
@@ -208,7 +208,7 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
               <button
                 onClick={handleRender}
                 disabled={!canRender || rendering}
-                className="press px-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-coral-600 rounded-xl font-bold text-white shadow-md hover:shadow-lg"
+                className="press px-5 py-2.5 bg-zinc-900 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-zinc-900 rounded-full font-bold text-white shadow-md hover:shadow-lg"
               >
                 {rendering
                   ? "Queuing…"

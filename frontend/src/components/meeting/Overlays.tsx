@@ -69,12 +69,12 @@ export function UploadBadge({
   const color = isError
     ? "bg-coral-700 text-white border-coral-600 shadow-coral-700/30"
     : state === "complete"
-      ? "bg-teal-900/85 text-teal-100 border-teal-700"
-      : "bg-black/70 text-white border-white/10";
+      ? "bg-white text-emerald-700 border-black/5"
+      : "bg-white text-ink border-black/5";
 
   return (
     <div
-      className={`appear absolute bottom-4 right-4 z-20 flex items-center gap-2 backdrop-blur-md border px-3 py-1.5 rounded-full text-xs font-medium shadow-lg tracking-tight ${color}`}
+      className={`appear absolute bottom-4 right-4 z-20 flex max-w-[min(26rem,calc(100%-2rem))] items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold tracking-tight shadow-[0_6px_18px_rgba(24,24,27,0.10)] ${color}`}
       title={isError && lastError ? lastError : undefined}
       role={isError ? "alert" : "status"}
     >
@@ -92,9 +92,9 @@ export function RecoveryBadge({ percent }: { percent: number }) {
   return (
     <div
       role="status"
-      className="appear absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/70 text-white border border-white/10 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-medium shadow-lg tracking-tight"
+      className="appear absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold tracking-tight text-ink shadow-[0_6px_18px_rgba(24,24,27,0.10)]"
     >
-      <span className="w-2 h-2 rounded-full bg-teal-300 animate-pulse" aria-hidden />
+      <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-900" aria-hidden />
       <span className="tabular-nums">Recovering an earlier recording · {percent}%</span>
     </div>
   );

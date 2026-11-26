@@ -66,11 +66,8 @@ export default function JoinClient({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center"
-      style={{ background: "var(--gradient-teal)" }}
-    >
-      <div className="text-teal-100 text-sm animate-pulse">Opening session…</div>
+    <div className="min-h-screen flex items-center justify-center bg-cream">
+      <div className="text-ink-muted text-sm animate-pulse">Opening session…</div>
     </div>
   );
 }

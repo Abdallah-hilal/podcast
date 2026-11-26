@@ -46,7 +46,7 @@ export function InCallDeviceSwitcher() {
         aria-label="Switch camera or microphone"
         aria-expanded={open}
         title="Choose which camera and microphone to use"
-        className="press h-11 px-3.5 rounded-full flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10 text-xs font-bold tracking-tight"
+        className="press flex h-11 items-center gap-2 rounded-full bg-studio-btn px-4 text-xs font-bold tracking-tight text-white hover:bg-studio-btn-hover"
       >
         <GearIcon />
         <span className="hidden sm:inline">Camera &amp; mic</span>
@@ -57,10 +57,10 @@ export function InCallDeviceSwitcher() {
           ref={panelRef}
           role="dialog"
           aria-label="Device settings"
-          className="absolute bottom-full mb-3 right-0 w-72 material-dark border border-white/15 rounded-2xl p-4 shadow-xl z-30"
+          className="absolute bottom-full left-1/2 z-30 mb-4 w-72 -translate-x-1/2 rounded-2xl border border-black/5 bg-white p-4 text-ink shadow-[0_18px_44px_rgba(24,24,27,0.18)]"
         >
           <DevicePicker kind="videoinput" label="Camera" />
-          <div className="h-px bg-white/10 my-3" />
+          <div className="my-3 h-px bg-border" />
           <DevicePicker kind="audioinput" label="Microphone" />
         </div>
       )}
@@ -92,7 +92,7 @@ function DevicePicker({
 
   return (
     <label className="block space-y-1.5">
-      <span className="block text-[10px] font-bold uppercase tracking-widest text-teal-300">
+      <span className="block text-xs font-semibold text-ink-muted">
         {label}
       </span>
       <select
@@ -103,7 +103,7 @@ function DevicePicker({
           // which re-publishes with the new source.
           void setActiveMediaDevice(e.target.value);
         }}
-        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full rounded-xl border border-border bg-cream px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-zinc-900/20 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {devices.length === 0 && <option value="">— No devices —</option>}
         {devices.map((d) => (

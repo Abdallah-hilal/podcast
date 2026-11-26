@@ -100,7 +100,7 @@ export default function RecordingPlayer({ recordingId }: { recordingId: string }
               <a
                 href={url}
                 download={`recording-${recordingId}.webm`}
-                className="press inline-block px-5 py-2.5 bg-coral-600 hover:bg-coral-700 text-white rounded-xl font-bold shadow-md hover:shadow-lg"
+                className="press inline-block px-5 py-2.5 bg-zinc-900 hover:bg-zinc-700 text-white rounded-full font-bold"
               >
                 Download .webm
               </a>

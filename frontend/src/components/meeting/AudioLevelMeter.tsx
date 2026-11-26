@@ -97,7 +97,7 @@ export function AudioLevelMeter({ micId, enabled }: Props) {
       <span className="text-xs text-gray-500 shrink-0 min-w-[2ch] tabular-nums">
         {enabled ? `${Math.round(pct)}%` : "—"}
       </span>
-      <div className="relative flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+      <div className="relative flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
         <div
           className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
           style={{

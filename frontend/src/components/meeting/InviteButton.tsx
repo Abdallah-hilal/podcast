@@ -41,10 +41,10 @@ export function InviteButton({ sessionId }: { sessionId: string }) {
       onClick={copy}
       aria-live="polite"
       className={[
-        "press flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold",
+        "press flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold",
         copied
-          ? "bg-teal-500/20 text-teal-100 ring-1 ring-teal-300/40"
-          : "bg-coral-600 hover:bg-coral-700 text-white shadow-md hover:shadow-lg",
+          ? "bg-emerald-100 text-emerald-800"
+          : "bg-zinc-900 text-white hover:bg-zinc-700",
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <LinkIcon />}

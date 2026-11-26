@@ -47,17 +47,6 @@ export function AuthCard() {
 
   return (
     <div className="min-h-screen bg-cream flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Decorative orange glow in the top-right, teal in the bottom-left — subtle brand presence */}
-      <div
-        aria-hidden
-        className="absolute -top-32 -right-32 w-80 h-80 rounded-full opacity-40 blur-3xl"
-        style={{ background: "var(--gradient-sunset)" }}
-      />
-      <div
-        aria-hidden
-        className="absolute -bottom-32 -left-32 w-80 h-80 rounded-full opacity-25 blur-3xl"
-        style={{ background: "var(--gradient-teal)" }}
-      />
 
       <div className="relative w-full max-w-md space-y-6">
         <div className="text-center space-y-2">

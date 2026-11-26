@@ -21,14 +21,13 @@ export function Logo({ size = "md", linkTo = "/", showMark = true, tagline = fal
       {showMark && (
         <span
           aria-hidden
-          className={`${markSize} shrink-0 inline-flex items-center justify-center rounded-full font-black text-white shadow-md`}
-          style={{ background: "var(--gradient-sunset)" }}
+          className={`${markSize} shrink-0 inline-flex items-center justify-center rounded-xl bg-zinc-900 font-extrabold text-white`}
         >
           PS
         </span>
       )}
-      <span className={`${scale} font-black tracking-tight text-ink leading-none`}>
-        Podcast Studio<span className="text-coral-600">.</span>
+      <span className={`${scale} font-extrabold tracking-tight text-ink leading-none`}>
+        Podcast Studio<span className="text-coral-500">.</span>
       </span>
     </span>
   );

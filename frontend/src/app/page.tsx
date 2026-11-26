@@ -92,7 +92,7 @@ export default function HomePage() {
               await supabase.auth.signOut();
               router.push("/login");
             }}
-            className="press inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl font-bold shadow-md"
+            className="press inline-block px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-full font-bold"
           >
             Sign out
           </button>
@@ -150,7 +150,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={loading}
-              className="press px-6 py-3 bg-coral-600 hover:bg-coral-700 disabled:opacity-60 disabled:hover:bg-coral-600 text-white rounded-xl font-bold shadow-md hover:shadow-lg whitespace-nowrap"
+              className="press px-6 py-3 bg-zinc-900 hover:bg-zinc-700 disabled:opacity-60 disabled:hover:bg-zinc-900 text-white rounded-full font-bold whitespace-nowrap"
             >
               {loading ? "Creating…" : "New session"}
             </button>
@@ -211,7 +211,7 @@ export default function HomePage() {
                       {!ended && (
                         <Link
                           href={`/session/${s.id}/mix`}
-                          className="press text-xs font-semibold text-teal-700 hover:text-brand underline-offset-2 hover:underline"
+                          className="press text-xs font-semibold text-ink-muted hover:text-ink underline-offset-2 hover:underline"
                         >
                           Mix
                         </Link>
@@ -244,9 +244,9 @@ export default function HomePage() {
 
 function StatusPill({ status }: { status: string }) {
   const map: Record<string, { cls: string; label: string }> = {
-    active: { cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20", label: "Active" },
+    active: { cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20", label: "Active" },
     ended: { cls: "bg-cream-200 text-ink-muted", label: "Ended" },
-    created: { cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10", label: "Ready" },
+    created: { cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20", label: "Ready" },
   };
   const { cls, label } = map[status] ?? { cls: "bg-cream-200 text-ink-muted", label: status };
   return (

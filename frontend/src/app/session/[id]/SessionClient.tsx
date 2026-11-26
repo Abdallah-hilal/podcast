@@ -23,7 +23,6 @@ import {
 import { InviteButton } from "@/components/meeting/InviteButton";
 import { ParticipantsBadge } from "@/components/meeting/ParticipantsBadge";
 import {
-  RecordIcon,
   StopIcon,
   PhoneOffIcon,
 } from "@/components/meeting/icons";
@@ -443,8 +442,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
 
   if (!localOnly && !joinInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--gradient-teal)" }}>
-        <div className="text-teal-100 text-sm animate-pulse">Connecting…</div>
+      <div className="min-h-screen flex items-center justify-center bg-cream">
+        <div className="text-ink-muted text-sm animate-pulse">Connecting…</div>
       </div>
     );
   }
@@ -480,16 +479,15 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   // `withBadge` is for the in-room header (inside LiveKitRoom); the local-only
   // header omits it since there's no room context to count participants.
   const renderHeader = (withBadge: boolean) => (
-    <header className="flex items-center justify-between px-4 sm:px-5 py-4 bg-black/30 backdrop-blur-xl border-b border-white/10">
+    <header className="flex items-center justify-between px-4 pt-4 pb-2 sm:px-6">
       <div className="min-w-0 flex-1 mr-4 flex items-center gap-3">
         <div
           aria-hidden
-          className="w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-black text-white shadow-md"
-          style={{ background: "var(--gradient-sunset)" }}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-[11px] font-extrabold text-white"
         >
           PS
         </div>
-        <h1 className="text-base md:text-lg font-bold text-white truncate">
+        <h1 className="truncate text-base font-bold tracking-tight text-ink md:text-lg">
           {sessionTitle}
         </h1>
       </div>
@@ -500,14 +498,14 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     </header>
   );
 
-  const roomBgStyle = { background: "var(--gradient-teal)" };
+  const roomBgStyle = { background: "var(--color-bg)" };
 
   if (localOnly) {
     return (
-      <div className="min-h-screen text-white flex flex-col" style={roomBgStyle}>
+      <div className="min-h-screen text-ink flex flex-col" style={roomBgStyle}>
         {renderHeader(false)}
         <div className="flex-1 relative flex items-center justify-center p-6">
-          <div className="max-w-md text-center text-teal-100/80">
+          <div className="max-w-md text-center text-ink-muted">
             Live video call is not configured for this server. You can still
             record locally — your webm will be uploaded to Supabase.
           </div>
@@ -598,7 +596,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
         }
       }}
     >
-      <div className="min-h-screen text-white flex flex-col" style={roomBgStyle}>
+      <div className="min-h-screen text-ink flex flex-col" style={roomBgStyle}>
         {renderHeader(true)}
         <div className="flex-1 relative flex items-center justify-center p-4 md:p-6">
           <VideoGrid />
@@ -662,20 +660,20 @@ function DownloadRecordingBadge({
   return (
     <div className="absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4">
       <div
-        className="pointer-events-auto material-dark border border-white/20 rounded-2xl p-4 flex items-center gap-3 shadow-xl max-w-md w-full"
+        className="pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-[0_18px_44px_rgba(24,24,27,0.16)]"
         role="status"
         aria-live="polite"
       >
-        <svg aria-hidden className="w-6 h-6 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg aria-hidden className="h-6 w-6 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-white">
+          <p className="text-sm font-bold text-ink">
             {isPhone ? "Your recording is ready — tap Save" : "Saved to your Downloads folder"}
           </p>
-          <p className="text-[11px] text-teal-200/80 truncate">
+          <p className="truncate text-xs text-ink-muted">
             {filename}
           </p>
         </div>
@@ -718,14 +716,14 @@ function DownloadRecordingBadge({
               })
               .catch((e) => console.warn("Download failed:", e));
           }}
-          className="press px-4 py-2 bg-coral-600 hover:bg-coral-700 text-white rounded-xl text-sm font-bold whitespace-nowrap shadow-lg"
+          className="press whitespace-nowrap rounded-full bg-zinc-900 px-4 py-2 text-sm font-bold text-white hover:bg-zinc-700"
         >
           {isPhone ? "Save" : "Download again"}
         </button>
         <button
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="press w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center shrink-0"
+          className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cream text-ink-muted hover:bg-cream-sunken"
         >
           ×
         </button>
@@ -914,11 +912,11 @@ function LocalControlBar({
   };
 
   return (
-    <div className="flex items-center justify-center gap-3 py-5 px-4 material-dark border-t border-white/5">
+    <div className="mx-auto mb-5 mt-2 flex w-fit items-center justify-center gap-2 rounded-[28px] bg-studio-dock p-2 text-white shadow-[0_14px_36px_rgba(24,24,27,0.22)]">
       {isRecording ? (
         <button
           onClick={onStop}
-          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 rounded-full text-white font-bold shadow-lg"
+          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700"
         >
           <StopIcon className="w-3 h-3" />
           <span className="text-sm tabular-nums tracking-tight">Stop · {timeStr}</span>
@@ -927,9 +925,9 @@ function LocalControlBar({
         <button
           onClick={handleRecord}
           disabled={isBusy}
-          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:hover:bg-white/10 rounded-full text-white font-bold ring-1 ring-white/10"
+          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:opacity-50"
         >
-          <RecordIcon className="w-3 h-3 text-coral-500" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white" aria-hidden />
           <span className="text-sm tracking-tight">
             {isBusy
               ? recState === "uploading"
@@ -949,7 +947,7 @@ function LocalControlBar({
               ? `Saving locally to "${localSaveFilename}". Click to pick a different file.`
               : "Pick a file to save a local copy."
           }
-          className="press flex items-center gap-2 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold ring-1 ring-white/10 max-w-[200px]"
+          className="press flex h-11 max-w-[200px] items-center gap-2 rounded-full bg-studio-btn px-4 text-xs font-bold text-white hover:bg-studio-btn-hover"
         >
           <svg aria-hidden className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -968,7 +966,7 @@ function LocalControlBar({
       <button
         onClick={onLeave}
         aria-label="Leave"
-        className="press w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
+        className="press flex h-11 w-11 items-center justify-center rounded-full bg-white text-coral-700 hover:bg-zinc-100"
       >
         <PhoneOffIcon />
       </button>

@@ -39,27 +39,27 @@ function fmtDate(iso: string): string {
 
 const STATUS_CLASS: Record<string, { cls: string; label: string }> = {
   ready: {
-    cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10",
+    cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20",
     label: "Ready",
   },
   recording: {
-    cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20",
+    cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20",
     label: "Recording",
   },
   uploading: {
-    cls: "bg-coral-600/10 text-coral-700 ring-1 ring-coral-600/20",
+    cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20",
     label: "Uploading",
   },
   uploaded: {
-    cls: "bg-teal-100 text-brand ring-1 ring-teal-900/10",
-    label: "Uploaded",
+    cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20",
+    label: "Processing",
   },
   processing: {
-    cls: "bg-orange-400/20 text-coral-700 ring-1 ring-coral-600/20",
+    cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20",
     label: "Processing",
   },
   error: {
-    cls: "bg-coral-600/15 text-coral-700 ring-1 ring-coral-600/30",
+    cls: "bg-red-50 text-red-700 ring-1 ring-red-600/20",
     label: "Error",
   },
 };

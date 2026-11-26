@@ -8,7 +8,6 @@ import {
   MicOffIcon,
   CamIcon,
   CamOffIcon,
-  RecordIcon,
   StopIcon,
   PhoneOffIcon,
 } from "./icons";
@@ -73,7 +72,7 @@ export function ControlBar({
     // material-dark: translucent chrome floating over the VideoGrid instead
     // of a solid bar that eats a fixed strip of the canvas. The inset top
     // highlight reads as light catching the glass.
-    <div className="relative flex items-center justify-center gap-2 md:gap-3 py-5 px-4 material-dark border-t border-white/5">
+    <div className="relative mx-auto mb-5 mt-2 flex w-fit max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-[28px] bg-studio-dock p-2 text-white shadow-[0_14px_36px_rgba(24,24,27,0.22)]">
       {/* Mic + cam are safe to toggle during a recording: LiveKit's
           useTrackToggle does a soft mute (track.enabled = false), it does NOT
           end the MediaStreamTrack — the MediaRecorder stream stays live and
@@ -97,7 +96,7 @@ export function ControlBar({
 
       <InCallDeviceSwitcher />
 
-      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
+      <div className="mx-1 h-6 w-px bg-white/10" aria-hidden />
 
       {switchError && (
         <div
@@ -120,7 +119,7 @@ export function ControlBar({
         <button
           onClick={onStop}
           disabled={switchPending}
-          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-70 rounded-full text-white font-bold shadow-lg hover:shadow-xl"
+          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:opacity-70"
         >
           <StopIcon className="w-3 h-3" />
           <span className="text-sm tabular-nums tracking-tight">
@@ -140,9 +139,9 @@ export function ControlBar({
               ? "Your mic and camera are off — guests will still record"
               : "Starts recording for everyone in the room"
           }
-          className="press flex items-center gap-2 pl-4 pr-5 py-2.5 bg-white/10 hover:bg-coral-600/80 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10 rounded-full text-white font-bold ring-1 ring-white/10"
+          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <RecordIcon className="w-3 h-3 text-coral-500" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white" aria-hidden />
           <span className="text-sm tracking-tight">
             {switchPending
               ? "Starting…"
@@ -159,7 +158,7 @@ export function ControlBar({
 
       {onChangeLocalSave && (
         <>
-          <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
+          <div className="mx-1 h-6 w-px bg-white/10" aria-hidden />
           <LocalSaveButton
             onClick={onChangeLocalSave}
             filename={localSaveFilename ?? null}
@@ -167,12 +166,12 @@ export function ControlBar({
         </>
       )}
 
-      <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
+      <div className="mx-1 h-6 w-px bg-white/10" aria-hidden />
 
       <button
         onClick={onLeave}
         aria-label="Leave meeting"
-        className="press w-11 h-11 rounded-full bg-coral-700 hover:bg-coral-700/80 text-white flex items-center justify-center shadow-lg"
+        className="press flex h-11 w-11 items-center justify-center rounded-full bg-white text-coral-700 hover:bg-zinc-100"
       >
         <PhoneOffIcon />
       </button>
@@ -240,8 +239,8 @@ function IconToggle({
         "press w-11 h-11 rounded-full flex items-center justify-center",
         disabled ? "cursor-not-allowed opacity-50" : "",
         on
-          ? "bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10"
-          : "bg-coral-600 hover:bg-coral-700 text-white",
+          ? "bg-studio-btn hover:bg-studio-btn-hover text-white"
+          : "bg-white text-coral-700 hover:bg-zinc-100",
       ].join(" ")}
     >
       {on ? onIcon : offIcon}
@@ -266,7 +265,7 @@ function GuestRecordStatus({
     return (
       <div
         role="status"
-        className="flex items-center gap-2 pl-3.5 pr-4 py-2.5 bg-coral-600 rounded-full text-white font-bold shadow-lg"
+        className="flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-3.5 pr-4 font-bold text-white"
       >
         <span className="relative flex w-2.5 h-2.5" aria-hidden>
           <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
@@ -296,9 +295,9 @@ function GuestRecordStatus({
   return (
     <div
       role="status"
-      className="flex items-center gap-2 px-4 py-2.5 bg-white/10 rounded-full text-white/85 text-sm font-semibold tracking-tight ring-1 ring-white/10"
+      className="flex h-11 items-center gap-2 rounded-full bg-studio-btn px-4 text-sm font-semibold tracking-tight text-white/85"
     >
-      <RecordIcon className="w-3 h-3 text-coral-500" />
+      <span className="h-2 w-2 rounded-full bg-coral-500" aria-hidden />
       {text}
     </div>
   );

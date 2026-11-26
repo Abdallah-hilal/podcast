@@ -29,10 +29,10 @@ export function ParticipantsBadge() {
   return (
     <div
       className={[
-        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ring-1",
+        "flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
         alone
-          ? "bg-coral-600/15 text-coral-500 ring-coral-600/30"
-          : "bg-white/10 text-teal-100 ring-white/10",
+          ? "bg-amber-100 text-amber-800"
+          : "bg-white text-ink-muted shadow-sm",
       ].join(" ")}
       aria-label={alone ? "Waiting for others" : `${count} participants in room`}
     >

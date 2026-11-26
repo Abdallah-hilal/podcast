@@ -208,15 +208,8 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
-      style={{ background: "var(--gradient-teal)" }}
+      className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden bg-cream"
     >
-      {/* Sunset glow top-right — brand warmth over the teal canvas */}
-      <div
-        aria-hidden
-        className="absolute -top-40 -right-40 w-96 h-96 rounded-full opacity-25 blur-3xl"
-        style={{ background: "var(--gradient-sunset)" }}
-      />
 
       <div className="relative w-full max-w-2xl space-y-5">
         <div className="flex justify-center">
@@ -224,10 +217,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         </div>
 
         <div className="text-center space-y-1 appear">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-300">
+          <p className="text-sm font-medium text-ink-muted">
             {roleLabel}
           </p>
-          <h1 className="text-2xl md:text-3xl font-black text-white truncate tracking-tight">
+          <h1 className="text-2xl md:text-3xl font-extrabold text-ink truncate tracking-tight">
             {title}
           </h1>
         </div>
@@ -235,15 +228,15 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         {supportWarning && (
           <div
             role="status"
-            className="text-center text-xs text-orange-200 bg-orange-400/10 border border-orange-400/30 rounded-xl px-3 py-2 backdrop-blur-sm"
+            className="text-center text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2"
           >
             {supportWarning}
           </div>
         )}
 
         <div
-          className="relative aspect-video bg-black rounded-2xl overflow-hidden ring-1 ring-white/10"
-          style={{ boxShadow: "var(--shadow-photo)" }}
+          className="relative aspect-video bg-studio-tile rounded-[22px] overflow-hidden"
+          style={{ boxShadow: "0 10px 30px rgba(24, 24, 27, 0.12)" }}
         >
           {camOn && ready && !err ? (
             <video
@@ -255,15 +248,14 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               style={{ transform: "scaleX(-1)" }}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-teal-300/70">
+            <div className="w-full h-full flex items-center justify-center text-white/60">
               {!ready ? (
                 <span className="text-sm animate-pulse">Checking devices…</span>
               ) : camOn ? (
                 <span className="text-sm">No camera</span>
               ) : (
                 <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center shadow-xl"
-                  style={{ background: "var(--gradient-sunset)" }}
+                  className="w-20 h-20 rounded-full flex items-center justify-center bg-studio-btn-hover"
                 >
                   <CamOffIcon className="w-8 h-8 text-white" />
                 </div>
@@ -277,10 +269,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               aria-label={micOn ? "Turn off microphone" : "Turn on microphone"}
               aria-pressed={micOn}
               className={[
-                "press w-11 h-11 rounded-full flex items-center justify-center shadow-lg",
+                "press w-11 h-11 rounded-full flex items-center justify-center",
                 micOn
-                  ? "bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/10"
-                  : "bg-coral-600 hover:bg-coral-700 text-white",
+                  ? "bg-studio-dock/80 hover:bg-studio-dock text-white"
+                  : "bg-white text-coral-700 hover:bg-zinc-100",
               ].join(" ")}
             >
               {micOn ? <MicIcon /> : <MicOffIcon />}
@@ -290,10 +282,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               aria-label={camOn ? "Turn off camera" : "Turn on camera"}
               aria-pressed={camOn}
               className={[
-                "press w-11 h-11 rounded-full flex items-center justify-center shadow-lg",
+                "press w-11 h-11 rounded-full flex items-center justify-center",
                 camOn
-                  ? "bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/10"
-                  : "bg-coral-600 hover:bg-coral-700 text-white",
+                  ? "bg-studio-dock/80 hover:bg-studio-dock text-white"
+                  : "bg-white text-coral-700 hover:bg-zinc-100",
               ].join(" ")}
             >
               {camOn ? <CamIcon /> : <CamOffIcon />}
@@ -302,21 +294,21 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         </div>
 
         {err && (
-          <p className="text-center text-sm text-orange-400 bg-black/40 border border-orange-500/30 rounded-lg px-3 py-2 backdrop-blur-sm">
+          <p className="text-center text-sm text-coral-700 bg-white border border-coral-600/30 rounded-xl px-3 py-2">
             {err}
           </p>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="space-y-1.5">
-            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+            <span className="block text-xs font-semibold text-ink-muted">
               Camera
             </span>
             <select
               value={cameraId}
               onChange={(e) => setCameraId(e.target.value)}
               disabled={!devices.cameras.length}
-              className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 disabled:opacity-50 backdrop-blur-sm"
+              className="w-full px-3 py-2.5 bg-white border border-border rounded-xl text-ink text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/15 disabled:opacity-50"
             >
               {devices.cameras.length === 0 && <option value="">— No cameras —</option>}
               {devices.cameras.map((c) => (
@@ -327,14 +319,14 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
             </select>
           </label>
           <label className="space-y-1.5">
-            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+            <span className="block text-xs font-semibold text-ink-muted">
               Microphone
             </span>
             <select
               value={micId}
               onChange={(e) => setMicId(e.target.value)}
               disabled={!devices.mics.length}
-              className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 disabled:opacity-50 backdrop-blur-sm"
+              className="w-full px-3 py-2.5 bg-white border border-border rounded-xl text-ink text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/15 disabled:opacity-50"
             >
               {devices.mics.length === 0 && <option value="">— No mics —</option>}
               {devices.mics.map((m) => (
@@ -348,13 +340,13 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
 
         <div className="space-y-1.5">
           <label className="block">
-            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300 mb-1.5">
+            <span className="block text-xs font-semibold text-ink-muted mb-1.5">
               Recording quality
             </span>
             <select
               value={quality}
               onChange={(e) => setQuality(e.target.value as QualityChoice)}
-              className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-coral-600/60 backdrop-blur-sm"
+              className="w-full px-3 py-2.5 bg-white border border-border rounded-xl text-ink text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
             >
               <option value="auto">Auto — 1080p (recommended)</option>
               <option value="4k">4K · 3840 × 2160 (25 Mbps)</option>
@@ -362,7 +354,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               <option value="1080p">1080p · 1920 × 1080 (6 Mbps)</option>
               <option value="720p">720p · 1280 × 720 (3.5 Mbps)</option>
             </select>
-            <p className="mt-1 text-[11px] text-teal-300/70">
+            <p className="mt-1 text-xs text-ink-muted">
               Auto records 1080p — plenty for a podcast. Higher qualities make much bigger files that take far longer to upload on a home connection.
             </p>
           </label>
@@ -370,28 +362,28 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
 
         {!err && (
           <div className="space-y-1.5">
-            <span className="block text-[11px] font-bold uppercase tracking-widest text-teal-300">
+            <span className="block text-xs font-semibold text-ink-muted">
               Mic level
             </span>
             <AudioLevelMeter micId={micId || undefined} enabled={micOn && !!micId} />
-            <p className="text-[11px] text-teal-300/70">
+            <p className="text-xs text-ink-muted">
               Say something — the bar should move. If it stays flat, pick a
               different mic above.
             </p>
           </div>
         )}
 
-        <div className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl">
-          <svg aria-hidden className="mt-0.5 w-5 h-5 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex items-start gap-3 p-4 bg-white border border-border rounded-2xl">
+          <svg aria-hidden className="mt-0.5 w-5 h-5 shrink-0 text-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           <span className="flex-1 min-w-0">
-            <span className="block text-sm font-bold text-white">
+            <span className="block text-sm font-bold text-ink">
               Your recording is saved on this device
             </span>
-            <span className="block text-xs text-teal-200/90 mt-0.5 leading-relaxed">
+            <span className="block text-xs text-ink-muted mt-0.5 leading-relaxed">
               {saveLocalSupported
                 ? "When the host stops recording, your file downloads automatically to your Downloads folder. It also uploads to the studio — keep this tab open until your tile says Saved."
                 : "When the host stops recording you'll get a Save prompt for your file. It also uploads to the studio — keep this page open until your tile says Saved."}
@@ -402,7 +394,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
         <button
           onClick={handleJoin}
           disabled={joining || disabled || pickerPending || (!ready && !err)}
-          className="press w-full py-3.5 bg-coral-600 hover:bg-coral-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-coral-600 rounded-xl font-black text-white text-base tracking-tight shadow-lg hover:shadow-xl"
+          className="press w-full py-3.5 bg-zinc-900 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-zinc-900 rounded-full font-bold text-white text-base tracking-tight"
         >
           {pickerPending
             ? "Pick a file…"
