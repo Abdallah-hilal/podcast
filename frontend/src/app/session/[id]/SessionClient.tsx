@@ -24,7 +24,7 @@ import { InviteButton } from "@/components/meeting/InviteButton";
 import { ParticipantsBadge } from "@/components/meeting/ParticipantsBadge";
 import {
   StopIcon,
-  PhoneOffIcon,
+  HangUpIcon,
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
 import { LIVE_UPLOAD_BPS, RecordingPipeline } from "@/lib/recording/pipeline";
@@ -966,9 +966,11 @@ function LocalControlBar({
       <button
         onClick={onLeave}
         aria-label="Leave"
-        className="press flex h-11 w-11 items-center justify-center rounded-full bg-white text-coral-700 hover:bg-zinc-100"
+        title="End the call and leave"
+        className="press flex h-11 items-center gap-2 rounded-full bg-red-600 pl-3.5 pr-4 text-sm font-bold text-white hover:bg-red-700"
       >
-        <PhoneOffIcon />
+        <HangUpIcon className="h-5 w-5" />
+        <span>Leave</span>
       </button>
     </div>
   );

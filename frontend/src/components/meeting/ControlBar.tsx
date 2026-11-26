@@ -9,7 +9,7 @@ import {
   CamIcon,
   CamOffIcon,
   StopIcon,
-  PhoneOffIcon,
+  HangUpIcon,
 } from "./icons";
 import { InCallDeviceSwitcher } from "./InCallDeviceSwitcher";
 
@@ -171,9 +171,11 @@ export function ControlBar({
       <button
         onClick={onLeave}
         aria-label="Leave meeting"
-        className="press flex h-11 w-11 items-center justify-center rounded-full bg-white text-coral-700 hover:bg-zinc-100"
+        title="End the call and leave"
+        className="press flex h-11 items-center gap-2 rounded-full bg-red-600 pl-3.5 pr-4 text-sm font-bold text-white hover:bg-red-700"
       >
-        <PhoneOffIcon />
+        <HangUpIcon className="h-5 w-5" />
+        <span>Leave</span>
       </button>
     </div>
   );
