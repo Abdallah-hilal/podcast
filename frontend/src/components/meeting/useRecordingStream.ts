@@ -81,6 +81,13 @@ export function useRecordingStream() {
     }
     composerRef.current.setCameraTrack(camTrack);
     composerRef.current.setMicTrack(micTrack);
+    // Keep following LiveKit's live tracks so switching camera/mic mid-take
+    // (or toggling them) changes the picture/sound in the same recording.
+    const live = (src: Track.Source) => () => {
+      const pub = localParticipant.getTrackPublication(src);
+      return pub && !pub.isMuted ? pub.track?.mediaStreamTrack ?? null : null;
+    };
+    composerRef.current.setSources(live(Track.Source.Camera), live(Track.Source.Microphone));
     return composerRef.current.getStream();
   }, [localParticipant]);
 

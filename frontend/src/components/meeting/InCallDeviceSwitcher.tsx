@@ -3,14 +3,14 @@
 // Mid-call camera / microphone switcher. Lives INSIDE LiveKitRoom so it can
 // call room.switchActiveDevice via @livekit/components-react.
 //
-// Locked while recording — MediaRecorder tears down when the source track it
-// was reading ends, and switchActiveDevice ends the old track before adopting
-// the new one. Stop the recording before switching devices.
+// Safe while recording: the recorder reads from RecordingComposer, which
+// follows whatever camera/mic track LiveKit currently has, so a switch
+// just changes the picture/sound in the same take.
 
 import { useEffect, useRef, useState } from "react";
 import { useMediaDeviceSelect } from "@livekit/components-react";
 
-export function InCallDeviceSwitcher({ locked }: { locked: boolean }) {
+export function InCallDeviceSwitcher() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -45,14 +45,11 @@ export function InCallDeviceSwitcher({ locked }: { locked: boolean }) {
         onClick={() => setOpen((x) => !x)}
         aria-label="Switch camera or microphone"
         aria-expanded={open}
-        title={
-          locked
-            ? "Stop recording to switch devices"
-            : "Switch camera / microphone"
-        }
-        className="press w-11 h-11 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10"
+        title="Choose which camera and microphone to use"
+        className="press h-11 px-3.5 rounded-full flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10 text-xs font-bold tracking-tight"
       >
         <GearIcon />
+        <span className="hidden sm:inline">Camera &amp; mic</span>
       </button>
 
       {open && (
@@ -62,35 +59,33 @@ export function InCallDeviceSwitcher({ locked }: { locked: boolean }) {
           aria-label="Device settings"
           className="absolute bottom-full mb-3 right-0 w-72 material-dark border border-white/15 rounded-2xl p-4 shadow-xl z-30"
         >
-          {locked && (
-            <p className="mb-3 text-[11px] text-orange-200 bg-orange-400/10 border border-orange-400/30 rounded-lg px-2 py-1.5">
-              Switching mid-recording ends the current take. Stop first.
-            </p>
-          )}
-          <DevicePicker kind="videoinput" label="Camera" disabled={locked} />
+          <DevicePicker kind="videoinput" label="Camera" />
           <div className="h-px bg-white/10 my-3" />
-          <DevicePicker kind="audioinput" label="Microphone" disabled={locked} />
+          <DevicePicker kind="audioinput" label="Microphone" />
         </div>
       )}
     </div>
   );
 }
 
+// Must be a stable reference: useMediaDeviceSelect memoizes its device
+// observer on onError, so an inline arrow rebuilt the observer on every
+// render and the list never filled in ("— No devices —").
+function logDeviceError(err: Error) {
+  console.warn("device enumeration failed:", err);
+}
+
 function DevicePicker({
   kind,
   label,
-  disabled,
 }: {
   kind: "videoinput" | "audioinput";
   label: string;
-  disabled: boolean;
 }) {
-  // onError: the first time LiveKit enumerates devices it may need to prompt
-  // for permission; a user who declined gets an error here. Log and move on —
-  // the <select> renders empty and shows "— No devices —".
   const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
     kind,
-    onError: (err) => console.warn(`device enumeration (${kind}) failed:`, err),
+    requestPermissions: true,
+    onError: logDeviceError,
   });
 
   const safeActive = activeDeviceId || devices[0]?.deviceId || "";
@@ -102,7 +97,7 @@ function DevicePicker({
       </span>
       <select
         value={safeActive}
-        disabled={disabled || devices.length === 0}
+        disabled={devices.length === 0}
         onChange={(e) => {
           // setActiveMediaDevice internally calls room.switchActiveDevice(kind, id)
           // which re-publishes with the new source.

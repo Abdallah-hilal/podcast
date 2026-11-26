@@ -405,62 +405,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     };
   }, [pendingDownload]);
 
-  const handleChangeLocalSave = useCallback(async () => {
-    type FsWin = Window & {
-      showSaveFilePicker?: (opts?: {
-        suggestedName?: string;
-        types?: Array<{ description?: string; accept: Record<string, string[]> }>;
-      }) => Promise<FileSystemFileHandle>;
-    };
-    const fsWin = window as FsWin;
-    if (!fsWin.showSaveFilePicker) {
-      setError(
-        "This browser can't let you pick a local file. Use Chrome or Edge for Save-locally.",
-      );
-      return;
-    }
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-    const mime =
-      typeof MediaRecorder !== "undefined" &&
-      MediaRecorder.isTypeSupported("video/webm")
-        ? "video/webm"
-        : "video/mp4";
-    const ext = mime === "video/webm" ? "webm" : "mp4";
-    const safeTitle = (sessionTitle || "recording")
-      .replace(/[^\w\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-      .toLowerCase()
-      .slice(0, 40) || "recording";
-    let handle: FileSystemFileHandle;
-    try {
-      handle = await fsWin.showSaveFilePicker({
-        suggestedName: `${safeTitle}-${stamp}.${ext}`,
-        types: [
-          mime === "video/webm"
-            ? { description: "WebM video", accept: { "video/webm": [".webm"] } }
-            : { description: "MP4 video", accept: { "video/mp4": [".mp4"] } },
-        ],
-      });
-    } catch (e) {
-      // User-cancelled: no change.
-      if ((e as { name?: string })?.name === "AbortError") return;
-      console.warn("Change-location picker failed:", e);
-      return;
-    }
-    try {
-      await pipelineRef.current.swapLocalFile(handle);
-      setLocalSaveFilename(handle.name);
-    } catch (e) {
-      console.error("swapLocalFile failed:", e);
-      setError(
-        e instanceof Error
-          ? `Couldn't open ${handle.name}: ${e.message}`
-          : "Couldn't open the file you picked",
-      );
-    }
-  }, [sessionTitle]);
-
   // Warn the user if they try to close the tab while the pipeline hasn't
   // settled — OPFS still has the chunks, but closing mid-upload means the
   // final file never finalizes until they revisit (and we don't have a
@@ -594,7 +538,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
-          onChangeLocalSave={handleChangeLocalSave}
           localSaveFilename={localSaveFilename}
         />
       </div>
@@ -689,7 +632,6 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           onStartRecording={handleStartRecording}
           onStop={handleStopRecording}
           onLeave={handleLeave}
-          onChangeLocalSave={handleChangeLocalSave}
           localSaveFilename={localSaveFilename}
         />
       </div>
@@ -715,6 +657,8 @@ function DownloadRecordingBadge({
   filename: string;
   onDismiss: () => void;
 }) {
+  const isPhone =
+    typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   return (
     <div className="absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4">
       <div
@@ -729,7 +673,7 @@ function DownloadRecordingBadge({
         </svg>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-white">
-            Your recording is ready
+            {isPhone ? "Your recording is ready — tap Save" : "Saved to your Downloads folder"}
           </p>
           <p className="text-[11px] text-teal-200/80 truncate">
             {filename}
@@ -776,7 +720,7 @@ function DownloadRecordingBadge({
           }}
           className="press px-4 py-2 bg-coral-600 hover:bg-coral-700 text-white rounded-xl text-sm font-bold whitespace-nowrap shadow-lg"
         >
-          Download
+          {isPhone ? "Save" : "Download again"}
         </button>
         <button
           onClick={onDismiss}
@@ -918,7 +862,6 @@ function RoomRecordingControls({
       onStop={() => void flip(false)}
       onLeave={() => void handleLeave()}
       canRecord={isReady}
-      lockDeviceToggles={recState === "recording"}
       onChangeLocalSave={onChangeLocalSave}
       localSaveFilename={localSaveFilename}
     />

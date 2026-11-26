@@ -52,19 +52,19 @@ export function UploadBadge({
 
   const isError = state === "error";
 
+  // Plain words about the studio copy (the server). The user's own copy is
+  // the download in their Downloads folder — see DownloadRecordingBadge.
   const msg = isError
     ? batchesFailed > 0
-      ? `Upload failed · ${batchesFailed} batch${batchesFailed > 1 ? "es" : ""}`
-      : "Upload failed"
+      ? "Studio upload paused — your file is safe on this device; reopen the link later to finish"
+      : "Studio upload failed — your file is safe on this device"
     : state === "recording"
-      ? batchesTotal > 0
-        ? `Uploading · ${batchesUploaded}/${batchesTotal}`
-        : "Recording locally"
+      ? "Recording on this device"
       : state === "stopping"
-        ? "Finalizing…"
+        ? "Finishing your file…"
         : state === "uploading"
-          ? `Uploading · ${batchesUploaded}/${batchesTotal}`
-          : "Saved · " + fmtBytes(bytesUploaded);
+          ? `Uploading to the studio · ${batchesUploaded}/${batchesTotal} — keep this tab open`
+          : "Uploaded to the studio ✓ " + fmtBytes(bytesUploaded);
 
   const color = isError
     ? "bg-coral-700 text-white border-coral-600 shadow-coral-700/30"

@@ -83,7 +83,10 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
   // Default on when the browser supports it — the user has to opt out, not
   // opt in. An extra local copy is cheap insurance against cloud failures.
   const saveLocalSupported = canSaveLocally();
-  const [saveLocal, setSaveLocal] = useState(saveLocalSupported);
+  // The ahead-of-time "pick a file" save was retired: people didn't know
+  // where their recording went. Everyone now gets an automatic download to
+  // their Downloads folder the moment recording stops (see SessionClient).
+  const saveLocal = false;
   const [pickerPending, setPickerPending] = useState(false);
   const [quality, setQuality] = useState<QualityChoice>("auto");
 
@@ -378,45 +381,22 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
           </div>
         )}
 
-        <div className="space-y-1.5">
-          {saveLocalSupported ? (
-            <label className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl cursor-pointer hover:bg-black/30 transition-colors">
-              <input
-                type="checkbox"
-                checked={saveLocal}
-                onChange={(e) => setSaveLocal(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-coral-600 cursor-pointer"
-              />
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-bold text-white">
-                  Save a local copy to my device
-                </span>
-                <span className="block text-[11px] text-teal-300/80 mt-0.5">
-                  Pick a file when you join. The recording streams there as it happens, in parallel with the cloud upload — so you still have the file if the upload fails.
-                </span>
-              </span>
-            </label>
-          ) : (
-            // Mobile + Safari + Firefox: no File System Access API, so we don't
-            // offer a pre-flight picker. The recording still ends up on disk
-            // via the Web Share / auto-download path at Stop — tell the user
-            // so they don't think they're losing their copy.
-            <div className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl">
-              <svg aria-hidden className="mt-0.5 w-4 h-4 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-bold text-white">
-                  You&apos;ll get a download when you stop
-                </span>
-                <span className="block text-[11px] text-teal-300/80 mt-0.5">
-                  This browser can&apos;t let you pick a save location ahead of time, but the finished recording will appear as a Share / Save prompt the moment you tap Stop. The cloud upload runs in parallel either way.
-                </span>
-              </span>
-            </div>
-          )}
+        <div className="flex items-start gap-3 p-3 bg-black/20 border border-white/10 rounded-xl">
+          <svg aria-hidden className="mt-0.5 w-5 h-5 shrink-0 text-teal-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-bold text-white">
+              Your recording is saved on this device
+            </span>
+            <span className="block text-xs text-teal-200/90 mt-0.5 leading-relaxed">
+              {saveLocalSupported
+                ? "When the host stops recording, your file downloads automatically to your Downloads folder. It also uploads to the studio — keep this tab open until your tile says Saved."
+                : "When the host stops recording you'll get a Save prompt for your file. It also uploads to the studio — keep this page open until your tile says Saved."}
+            </span>
+          </span>
         </div>
 
         <button

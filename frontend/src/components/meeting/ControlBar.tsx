@@ -32,9 +32,6 @@ interface Props {
   onLeave: () => void;
   /** Disables the Record button when the recording source isn't ready. */
   canRecord?: boolean;
-  /** Locks the mic/camera toggles while a recording is live — toggling off
-   *  mid-recording ends the underlying track and silently cuts the file. */
-  lockDeviceToggles?: boolean;
   /** Opens a Save-As picker; on pick the pipeline swaps its local-save file.
    *  Omit on browsers without File System Access API support — the button
    *  is hidden entirely. */
@@ -59,7 +56,6 @@ export function ControlBar({
   onStop,
   onLeave,
   canRecord = true,
-  lockDeviceToggles = false,
   onChangeLocalSave,
   localSaveFilename,
   isHost,
@@ -99,7 +95,7 @@ export function ControlBar({
         label={cam.enabled ? "Turn camera off" : "Turn camera on"}
       />
 
-      <InCallDeviceSwitcher locked={lockDeviceToggles} />
+      <InCallDeviceSwitcher />
 
       <div className="w-px h-8 bg-white/15 mx-1 md:mx-2" aria-hidden />
 

@@ -42,6 +42,13 @@ export class RecordingComposer {
   private audioCtx: AudioContext | null = null;
   private audioDest: MediaStreamAudioDestinationNode | null = null;
   private currentAudioSource: MediaStreamAudioSourceNode | null = null;
+  private currentMicTrack: MediaStreamTrack | null = null;
+  // Live lookups of LiveKit's current camera/mic tracks, polled every frame.
+  // A device switch (switchActiveDevice → restartTrack) swaps the
+  // MediaStreamTrack without React necessarily re-rendering, so the
+  // recording would otherwise keep drawing the dead old track.
+  private cameraSource: (() => MediaStreamTrack | null) | null = null;
+  private micSource: (() => MediaStreamTrack | null) | null = null;
 
   private composedStream: MediaStream;
   private readonly fps: number;
@@ -103,8 +110,29 @@ export class RecordingComposer {
     }
   }
 
+  /** Follow LiveKit's current tracks automatically (see cameraSource). */
+  setSources(
+    camera: () => MediaStreamTrack | null,
+    mic: () => MediaStreamTrack | null,
+  ): void {
+    this.cameraSource = camera;
+    this.micSource = mic;
+  }
+
+  private syncSources(): void {
+    if (this.cameraSource) {
+      const cam = this.cameraSource();
+      if (cam !== this.currentVideoTrack) this.setCameraTrack(cam);
+    }
+    if (this.micSource) {
+      const mic = this.micSource();
+      if (mic !== this.currentMicTrack) this.setMicTrack(mic);
+    }
+  }
+
   /** Attach a new mic track (or null for silence). */
   setMicTrack(track: MediaStreamTrack | null): void {
+    this.currentMicTrack = track;
     this.ensureAudio();
     if (this.currentAudioSource) {
       try {
@@ -201,6 +229,7 @@ export class RecordingComposer {
   }
 
   private drawFrame(): void {
+    this.syncSources();
     const { ctx, canvas, video } = this;
     const hasVideo =
       this.currentVideoTrack !== null &&
