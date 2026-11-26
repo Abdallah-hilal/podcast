@@ -660,7 +660,7 @@ function DownloadRecordingBadge({
   return (
     <div className="absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4">
       <div
-        className="pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-[0_18px_44px_rgba(24,24,27,0.16)]"
+        className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-[0_18px_44px_rgba(24,24,27,0.16)]"
         role="status"
         aria-live="polite"
       >
