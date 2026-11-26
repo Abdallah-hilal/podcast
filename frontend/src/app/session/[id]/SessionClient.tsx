@@ -916,18 +916,18 @@ function LocalControlBar({
       {isRecording ? (
         <button
           onClick={onStop}
-          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700"
+          className="press flex h-11 items-center gap-2 rounded-full bg-white pl-4 pr-5 font-bold text-ink hover:bg-zinc-100"
         >
-          <StopIcon className="w-3 h-3" />
+          <StopIcon className="h-3 w-3 text-red-600" />
           <span className="text-sm tabular-nums tracking-tight">Stop · {timeStr}</span>
         </button>
       ) : (
         <button
           onClick={handleRecord}
           disabled={isBusy}
-          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:opacity-50"
+          className="press flex h-11 items-center gap-2 rounded-full bg-white pl-4 pr-5 font-bold text-ink hover:bg-zinc-100 disabled:opacity-50"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-white" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-red-600" aria-hidden />
           <span className="text-sm tracking-tight">
             {isBusy
               ? recState === "uploading"

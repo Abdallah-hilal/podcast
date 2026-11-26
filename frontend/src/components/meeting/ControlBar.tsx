@@ -119,9 +119,9 @@ export function ControlBar({
         <button
           onClick={onStop}
           disabled={switchPending}
-          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:opacity-70"
+          className="press flex h-11 items-center gap-2 rounded-full bg-white pl-4 pr-5 font-bold text-ink hover:bg-zinc-100 disabled:opacity-70"
         >
-          <StopIcon className="w-3 h-3" />
+          <StopIcon className="h-3 w-3 text-red-600" />
           <span className="text-sm tabular-nums tracking-tight">
             {switchPending
               ? "Stopping…"
@@ -139,9 +139,9 @@ export function ControlBar({
               ? "Your mic and camera are off — guests will still record"
               : "Starts recording for everyone in the room"
           }
-          className="press flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-4 pr-5 font-bold text-white hover:bg-coral-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="press flex h-11 items-center gap-2 rounded-full bg-white pl-4 pr-5 font-bold text-ink hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-white" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-red-600" aria-hidden />
           <span className="text-sm tracking-tight">
             {switchPending
               ? "Starting…"
@@ -267,16 +267,16 @@ function GuestRecordStatus({
     return (
       <div
         role="status"
-        className="flex h-11 items-center gap-2 rounded-full bg-coral-600 pl-3.5 pr-4 font-bold text-white"
+        className="flex h-11 items-center gap-2 rounded-full bg-studio-btn pl-3.5 pr-4 font-bold text-white"
       >
         <span className="relative flex w-2.5 h-2.5" aria-hidden>
-          <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
-          <span className="relative rounded-full bg-white w-2.5 h-2.5" />
+          <span className="absolute inset-0 animate-ping rounded-full bg-red-500 opacity-75" />
+          <span className="relative h-2.5 w-2.5 rounded-full bg-red-500" />
         </span>
         <span className="text-sm tabular-nums tracking-tight">
           Recording · {fmt(elapsedMs)}
         </span>
-        <span className="hidden sm:inline text-xs font-semibold text-white/80">
+        <span className="hidden text-xs font-semibold text-white/60 sm:inline">
           started by the host
         </span>
       </div>
