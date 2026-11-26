@@ -542,16 +542,23 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
-  // Capture resolution. "Auto" = 1080p everywhere: plenty for a podcast,
-  // safe on phones (iOS Safari fails at 4K + stereo + LiveKit), and 4K
-  // (25 Mbps ≈ 11 GB/hour per person) is more than a home uplink can move.
-  // An explicit pick (up to 4K) overrides.
+  // Capture resolution. Quality comes first (Abdallah's call): "Auto" asks
+  // for 4K on desktop and gets whatever the camera natively does — a 4K
+  // camera (e.g. DJI Pocket 3) records 4K, a 1080p webcam records 1080p.
+  // Phones stay at 1080p: iOS Safari fails at 4K + stereo + LiveKit. The
+  // file is on the user's disk the moment they stop; only the studio upload
+  // takes longer on a slow line. An explicit pick overrides.
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isPhoneOrSafari =
+    /iPhone|iPad|iPod|Android/i.test(ua) ||
+    (/Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|Edg/i.test(ua));
   const captureResolution = (() => {
     const q = preChoice?.quality ?? "auto";
     if (q === "720p") return VideoPresets.h720.resolution;
+    if (q === "1080p") return VideoPresets.h1080.resolution;
     if (q === "1440p") return VideoPresets.h1440.resolution;
     if (q === "4k") return VideoPresets.h2160.resolution;
-    return VideoPresets.h1080.resolution;
+    return isPhoneOrSafari ? VideoPresets.h1080.resolution : VideoPresets.h2160.resolution;
   })();
 
   const videoOpt: boolean | VideoCaptureOptions = preChoice?.camOn
@@ -563,13 +570,24 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       }
     : false;
 
+  // Studio audio (default on): turn off the browser's voice processing —
+  // echo cancellation, noise suppression and auto gain smear and pump a
+  // voice. With headphones there's no echo to cancel, and levels/noise are
+  // handled in the edit. Without headphones the user turns it off.
+  const studioAudio = preChoice?.studioAudio ?? true;
   const audioOpt: boolean | {
     deviceId?: { exact: string };
     channelCount?: number;
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
   } = preChoice?.micOn
     ? {
         ...(preChoice.micId ? { deviceId: { exact: preChoice.micId } } : {}),
         channelCount: 2,
+        ...(studioAudio
+          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+          : {}),
       }
     : false;
 

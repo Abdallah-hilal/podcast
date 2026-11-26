@@ -144,11 +144,13 @@ function pickVideoBitrate(stream: MediaStream): number {
   const w = settings?.width ?? 1280;
   const h = settings?.height ?? 720;
   const pixels = w * h;
-  if (pixels <= 640 * 480) return 1_500_000;
-  if (pixels <= 1280 * 720) return 3_500_000;
-  if (pixels <= 1920 * 1080) return 6_000_000;
-  if (pixels <= 2560 * 1440) return 15_000_000;
-  if (pixels <= 3840 * 2160) return 25_000_000;
+  // Quality first: source files for editing, well above YouTube's upload
+  // targets so nothing is lost before the final encode.
+  if (pixels <= 640 * 480) return 2_500_000;
+  if (pixels <= 1280 * 720) return 6_000_000;
+  if (pixels <= 1920 * 1080) return 12_000_000;
+  if (pixels <= 2560 * 1440) return 20_000_000;
+  if (pixels <= 3840 * 2160) return 40_000_000;
   return 40_000_000; // 8K and beyond — someone's dreaming big
 }
 
@@ -162,7 +164,7 @@ export function createRecorder(
     videoBitsPerSecond: pickVideoBitrate(stream),
     // 192 kbps Opus is transparent for stereo voice + music beds; mono
     // plays through the same codec perfectly fine.
-    audioBitsPerSecond: 192_000,
+    audioBitsPerSecond: 256_000,
   });
 
   let chunkIndex = 0;

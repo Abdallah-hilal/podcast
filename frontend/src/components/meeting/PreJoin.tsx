@@ -12,8 +12,10 @@ export interface PreJoinChoice {
   micId: string | undefined;
   camOn: boolean;
   micOn: boolean;
-  /** Capture resolution target. "auto" = 1080p (see SessionClient). */
+  /** Capture resolution target. "auto" = camera's best, up to 4K (see SessionClient). */
   quality: QualityChoice;
+  /** Raw mic (no echo cancellation / noise suppression / auto gain). Needs headphones. */
+  studioAudio: boolean;
   /**
    * If set, the pipeline tees every MediaRecorder chunk to this file in
    * parallel with OPFS + cloud upload — a hedge against a failed cloud
@@ -89,6 +91,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
   const saveLocal = false;
   const [pickerPending, setPickerPending] = useState(false);
   const [quality, setQuality] = useState<QualityChoice>("auto");
+  const [studioAudio, setStudioAudio] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -202,6 +205,7 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
       camOn: !blocked && camOn,
       micOn: !blocked && micOn,
       quality,
+      studioAudio,
       localFileHandle,
     });
   }
@@ -348,17 +352,32 @@ export function PreJoin({ title, roleLabel, onJoin, joining, disabled, disabledR
               onChange={(e) => setQuality(e.target.value as QualityChoice)}
               className="w-full px-3 py-2.5 bg-white border border-border rounded-xl text-ink text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
             >
-              <option value="auto">Auto — 1080p (recommended)</option>
-              <option value="4k">4K · 3840 × 2160 (25 Mbps)</option>
-              <option value="1440p">1440p · 2560 × 1440 (15 Mbps)</option>
-              <option value="1080p">1080p · 1920 × 1080 (6 Mbps)</option>
-              <option value="720p">720p · 1280 × 720 (3.5 Mbps)</option>
+              <option value="auto">Best my camera can do (recommended)</option>
+              <option value="4k">4K · 3840 × 2160 (40 Mbps)</option>
+              <option value="1440p">1440p · 2560 × 1440 (20 Mbps)</option>
+              <option value="1080p">1080p · 1920 × 1080 (12 Mbps)</option>
+              <option value="720p">720p · 1280 × 720 (6 Mbps)</option>
             </select>
             <p className="mt-1 text-xs text-ink-muted">
-              Auto records 1080p — plenty for a podcast. Higher qualities make much bigger files that take far longer to upload on a home connection.
+              Records at your camera&apos;s full resolution (up to 4K) and a high bitrate. Your file is on this device the moment recording stops; on a slow connection the studio upload just takes longer.
             </p>
           </label>
         </div>
+
+        <label className="flex items-start gap-3 rounded-2xl border border-border bg-white p-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={studioAudio}
+            onChange={(e) => setStudioAudio(e.target.checked)}
+            className="mt-0.5 h-4 w-4 cursor-pointer accent-zinc-900"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold text-ink">Studio audio — I&apos;m wearing headphones</span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
+              Records your mic raw, without the browser&apos;s echo and noise filters, for the cleanest voice. No headphones? Turn this off, or the other person&apos;s voice will echo into your recording.
+            </span>
+          </span>
+        </label>
 
         {!err && (
           <div className="space-y-1.5">
