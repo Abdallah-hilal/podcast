@@ -10,6 +10,7 @@ import {
 } from "./mediaRecorder";
 import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
+import { createSerialQueue } from "@/lib/serialQueue";
 import {
   canDiscardLocalCopy,
   newManifest,
@@ -59,6 +60,11 @@ export class RecordingPipeline {
   // can wait for the final chunk to land before sealing the last batch.
   private chunkChain: Promise<void> = Promise.resolve();
   private inflightUploads = new Map<string, Promise<void>>();
+  // One batch upload at a time, in order. Uploading every sealed batch at
+  // once (57 in parallel on a 1-hour take) meant none finished until the
+  // very end, showed "0 uploaded" for hours, and exhausted the storage
+  // server's DB connections (544 DatabaseTimeout, session "tess").
+  private uploadQueue = createSerialQueue();
   // OPFS manifest (see manifest.ts): which chunk ranges were sealed and
   // uploaded, so a returning page can finish this take after a crash.
   private manifest: TakeManifest | null = null;
@@ -282,6 +288,7 @@ export class RecordingPipeline {
     this.lastError = undefined;
     this.chunkChain = Promise.resolve();
     this.inflightUploads = new Map();
+    this.uploadQueue = createSerialQueue();
     this.dropTakeLock();
     this.stopHeartbeat();
     this.manifest = null;
@@ -495,7 +502,7 @@ export class RecordingPipeline {
   private attemptUpload(batch: ReturnType<BatchManager["seal"]>): Promise<void> {
     const existing = this.inflightUploads.get(batch.id);
     if (existing) return existing;
-    const p = (async () => {
+    const p = this.uploadQueue(async () => {
       try {
         await this.uploadBatch(batch);
       } catch (err) {
@@ -508,7 +515,7 @@ export class RecordingPipeline {
       } finally {
         this.inflightUploads.delete(batch.id);
       }
-    })();
+    });
     this.inflightUploads.set(batch.id, p);
     return p;
   }

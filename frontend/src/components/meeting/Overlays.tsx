@@ -29,6 +29,8 @@ interface UploadBadgeProps {
   batchesUploaded: number;
   batchesTotal: number;
   bytesUploaded: number;
+  /** Size of the whole take so far; drives the upload percentage. */
+  bytesRecorded?: number;
   batchesFailed?: number;
   lastError?: string;
 }
@@ -42,9 +44,8 @@ function fmtBytes(n: number): string {
 
 export function UploadBadge({
   state,
-  batchesUploaded,
-  batchesTotal,
   bytesUploaded,
+  bytesRecorded = 0,
   batchesFailed = 0,
   lastError,
 }: UploadBadgeProps) {
@@ -63,7 +64,7 @@ export function UploadBadge({
       : state === "stopping"
         ? "Finishing your file…"
         : state === "uploading"
-          ? `Uploading to the studio · ${batchesUploaded}/${batchesTotal} — keep this tab open`
+          ? `Uploading to the studio · ${bytesRecorded > 0 ? Math.min(99, Math.floor((bytesUploaded / bytesRecorded) * 100)) : 0}% (${fmtBytes(bytesUploaded)} of ${fmtBytes(bytesRecorded)}) — keep this tab open`
           : "Uploaded to the studio ✓ " + fmtBytes(bytesUploaded);
 
   const color = isError

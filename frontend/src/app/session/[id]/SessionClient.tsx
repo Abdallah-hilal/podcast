@@ -518,6 +518,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesUploaded={progress.batchesUploaded}
             batchesTotal={progress.batchesSealed}
             bytesUploaded={progress.bytesUploaded}
+            bytesRecorded={progress.bytesRecorded}
             batchesFailed={progress.batchesFailed}
             lastError={progress.lastError}
           />
@@ -627,6 +628,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
             batchesUploaded={progress.batchesUploaded}
             batchesTotal={progress.batchesSealed}
             bytesUploaded={progress.bytesUploaded}
+            bytesRecorded={progress.bytesRecorded}
             batchesFailed={progress.batchesFailed}
             lastError={progress.lastError}
           />
