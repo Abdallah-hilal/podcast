@@ -43,15 +43,18 @@ export function useAdaptiveUploadRate(
     const pipeline = pipelineRef.current;
     if (!pipeline) return;
     const current = pipeline.liveRate;
-    const next = nextLiveRate({
-      current,
-      quality: qualityRef.current,
-      backlog: pipeline.hasUploadBacklog,
-      linkBps: pipeline.measuredLinkBps,
-    });
+    const backlog = pipeline.hasUploadBacklog;
+    const link = pipeline.measuredLinkBps;
+    const next = nextLiveRate({ current, quality: qualityRef.current, backlog, linkBps: link });
+    // Verbose level (hidden by default in DevTools): every decision's
+    // inputs, for diagnosing a real call afterwards.
+    console.debug(
+      `Live upload check: call ${qualityRef.current}, backlog ${backlog}, uplink ${
+        link ? (link / 1e6).toFixed(2) : "?"
+      } Mbps, limit ${(current / 1e6).toFixed(2)} → ${(next / 1e6).toFixed(2)} Mbps`,
+    );
     if (next === current) return;
     pipeline.setLiveRate(next);
-    const link = pipeline.measuredLinkBps;
     console.info(
       `Live upload limit ${(current / 1e6).toFixed(2)} → ${(next / 1e6).toFixed(2)} Mbps` +
         ` (call ${qualityRef.current}, uplink ${link ? (link / 1e6).toFixed(1) + " Mbps" : "not measured yet"})`,
