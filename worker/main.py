@@ -66,6 +66,15 @@ EGRESS_DIR = Path(os.environ.get("EGRESS_DIR", "/egress"))
 RECONCILE_INTERVAL_SEC = float(os.environ.get("SERVER_COPY_RECONCILE_SEC", "2"))
 IMPORT_INTERVAL_SEC = float(os.environ.get("SERVER_COPY_IMPORT_SEC", "5"))
 IMPORT_RETRY_SEC = 60
+# The H264_720P_30 preset's video, with 48 kHz / 192 kbps AAC instead of its
+# 44.1 kHz / 128 kbps: the call audio (96 kbps Opus) is decoded and encoded
+# again, so leave the second generation room. AAC, not Opus, so any editor
+# opens the MP4.
+SERVER_COPY_ENCODING = lkapi.EncodingOptions(
+    width=1280, height=720, framerate=30,
+    video_codec=lkapi.VideoCodec.H264_MAIN, video_bitrate=3000,
+    audio_codec=lkapi.AudioCodec.AAC, audio_bitrate=192, audio_frequency=48000,
+)
 # An egress LiveKit no longer knows about is given this long before the copy
 # is written off (it normally reports COMPLETE within seconds).
 EGRESS_LOST_SEC = 600
@@ -75,6 +84,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("worker")
+# httpx logs every request at INFO; the job poll (5 s) and the server-copy
+# reconcile loop (2 s) would fill the container log with them.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _stop = False
 
@@ -479,7 +491,7 @@ async def _start_copy(pg, lk: lkapi.LiveKitAPI, session: dict, pid: str) -> None
         info = await lk.egress.start_participant_egress(lkapi.ParticipantEgressRequest(
             room_name=session["room_name"],
             identity=pid,
-            preset=lkapi.EncodingOptionsPreset.H264_720P_30,
+            advanced=SERVER_COPY_ENCODING,
             file_outputs=[lkapi.EncodedFileOutput(
                 file_type=lkapi.EncodedFileType.MP4, filepath=filepath,
             )],
@@ -663,8 +675,14 @@ def _import_one(pg, row: dict) -> None:
         "error_message": None, "updated_at": _now_iso(),
     }).eq("id", row["id"]).execute()
     log.info("server copy %s: ready at %s", row["id"], dest)
-    for p in (src, src.with_suffix(".json"), src.with_name(src.name + ".json")):
-        p.unlink(missing_ok=True)
+    src.unlink(missing_ok=True)
+    if row.get("egress_id"):  # egress writes its manifest as <egress_id>.json
+        (src.parent / f"{row['egress_id']}.json").unlink(missing_ok=True)
+    for d in (src.parent, src.parent.parent):  # participant dir, session dir
+        try:
+            d.rmdir()
+        except OSError:
+            break  # not empty (another copy still there) or already gone
 
 
 def import_loop() -> None:
