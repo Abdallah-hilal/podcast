@@ -1,0 +1,15 @@
+# /opt/livekit/livekit.yaml (chmod 600). Secrets replaced with <...>.
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+keys:
+  <LIVEKIT_API_KEY>: "<LIVEKIT_API_SECRET>"
+log_level: info
+# Added 2026-11-28 for egress (server recording copy).
+redis:
+  address: redis:6379
+  password: "<REDIS_PASSWORD>"

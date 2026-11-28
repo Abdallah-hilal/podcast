@@ -1,0 +1,52 @@
+# /opt/livekit/docker-compose.yml on the VPS (this copy has no secrets).
+#
+# livekit  — the SFU every call goes through (pre-existing, shared).
+# redis    — required by egress; livekit-server and egress must share it.
+#            No persistence; reachable on the compose network as redis:6379
+#            and on the host's loopback only (127.0.0.1:6390) for egress.
+# egress   — records each podcast participant into an MP4 (participant
+#            egress, no Chrome). Host networking because a container on the
+#            bridge can't reach LiveKit's published media ports through the
+#            public IP (no hairpin); on the host it can. UFW keeps its local
+#            ports (template 7980, health) closed to the internet.
+#            Files land in /opt/podcast-egress, which podcast-worker imports
+#            into Supabase storage.
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    restart: unless-stopped
+    ports:
+      - "7880:7880/tcp"
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    command: --config /etc/livekit.yaml --node-ip 169.58.95.212
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: livekit-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --save '' --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    env_file: .env.redis
+    ports:
+      - "127.0.0.1:6390:6379"
+
+  egress:
+    image: livekit/egress:v1.15.0
+    container_name: livekit-egress
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - /opt/podcast-egress:/out
+    # Keep two 720p encodes from starving the call or the other apps.
+    cpus: 3
+    depends_on:
+      - livekit
+      - redis
