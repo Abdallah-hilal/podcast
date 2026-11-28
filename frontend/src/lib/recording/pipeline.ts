@@ -386,6 +386,9 @@ export class RecordingPipeline {
     stream: MediaStream,
     opts?: {
       ownsStream?: boolean;
+      /** The host switch's run this take follows (pairs it with that run's
+       *  server copy). Null in local-only mode. */
+      run?: string | null;
       /**
        * If provided, each chunk is written to this file in parallel with
        * OPFS and the cloud upload. The file ends up being the raw recorder
@@ -439,6 +442,7 @@ export class RecordingPipeline {
       actual_width: videoSettings?.width ?? 0,
       actual_height: videoSettings?.height ?? 0,
       fps: videoSettings?.frameRate ?? 0,
+      run: opts?.run ?? null,
     });
     this.recordingId = recording.recording_id;
 

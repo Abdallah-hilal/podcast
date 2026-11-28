@@ -82,6 +82,7 @@ export function startRecording(
     actual_width: number;
     actual_height: number;
     fps: number;
+    run?: string | null;
   }
 ) {
   return request<StartRecordingResponse>(

@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { loginUrlWithNext } from "@/lib/auth-redirect";
 import { Logo } from "@/components/common/Logo";
-import type { CompositeStatusResponse } from "@/types";
+import type { CompositeStatusResponse, PersonSource } from "@/types";
 
 const POLL_MS = 3000;
 
@@ -26,6 +26,16 @@ const STATUS_PILL: Record<string, { cls: string; label: string }> = {
   pending: { cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20", label: "Queued" },
   none: { cls: "bg-cream-200 text-ink-muted", label: "Not rendered" },
 };
+
+function sourceLabel(p: PersonSource): string {
+  if (p.source === "hq") return "HQ recording";
+  if (p.source === "server") {
+    return p.hq_total > 0
+      ? `Call copy — HQ ${p.hq_ready}/${p.hq_total} arrived`
+      : "Call copy (no HQ recording)";
+  }
+  return "Nothing ready yet";
+}
 
 export default function MixClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -183,14 +193,38 @@ export default function MixClient({ sessionId }: { sessionId: string }) {
                 </span>
               </div>
 
+              {s.people?.length > 0 && (
+                <ul className="space-y-1 text-sm">
+                  {s.people.map((p) => (
+                    <li
+                      key={p.participant_id}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="font-bold text-ink capitalize">{p.role}</span>
+                      <span
+                        className={
+                          p.source === "server" ? "text-amber-800" : "text-ink-muted"
+                        }
+                      >
+                        {sourceLabel(p)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {s.people?.some((p) => p.source === "server") && (
+                <p className="text-xs text-ink-muted">
+                  The server&apos;s call-quality copy stands in for anyone whose
+                  HQ recording hasn&apos;t fully arrived. Render again once it has.
+                </p>
+              )}
+
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
                 <span>
                   <span className="font-bold text-ink tabular-nums">
                     {s.ready_recordings}
                   </span>
-                  {" / "}
-                  <span className="tabular-nums">{s.total_recordings}</span>
-                  {" recording(s) ready"}
+                  {" file(s) ready to mix"}
                 </span>
                 {s.total_bytes != null && (
                   <span className="tabular-nums">{fmtBytes(s.total_bytes)}</span>

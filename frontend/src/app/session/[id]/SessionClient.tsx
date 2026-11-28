@@ -9,7 +9,13 @@ import {
   useLocalParticipant,
   useRoomInfo,
 } from "@livekit/components-react";
-import { ConnectionState, VideoPresets, type VideoCaptureOptions } from "livekit-client";
+import {
+  AudioPresets,
+  ConnectionState,
+  VideoPresets,
+  type RoomOptions,
+  type VideoCaptureOptions,
+} from "livekit-client";
 import { createClient } from "@/lib/supabase/client";
 import * as api from "@/lib/api";
 import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
@@ -65,6 +71,18 @@ const getRecordingSupportClient = (): RecordingSupport => {
 };
 const getRecordingSupportServer = (): null => null;
 
+
+// The call's audio is now also the server recording copy (LiveKit egress),
+// which becomes the episode audio when someone's HQ upload never arrives.
+// Default is 48 kbps with DTX (silence gaps filled with comfort noise); use
+// 96 kbps and keep the room tone continuous. RED stays on for packet loss.
+const ROOM_OPTIONS: RoomOptions = {
+  publishDefaults: {
+    audioPreset: AudioPresets.musicHighQuality,
+    dtx: false,
+    red: true,
+  },
+};
 export default function SessionClient({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const supabase = createClient();
@@ -261,11 +279,12 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   );
 
   const handleStartRecording = useCallback(
-    async (stream: MediaStream, ownsStream: boolean) => {
+    async (stream: MediaStream, ownsStream: boolean, run?: string | null) => {
       if (!authed) return;
       try {
         await pipelineRef.current.start(sessionId, getFreshToken, stream, {
           ownsStream,
+          run: run ?? null,
           // PreJoin captured the file handle (null if the user declined or
           // their browser lacks the File System Access API); the pipeline
           // tees every chunk to it in parallel with OPFS + cloud upload.
@@ -651,6 +670,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     <LiveKitRoom
       serverUrl={joinInfo!.livekit_url}
       token={joinInfo!.livekit_token}
+      options={ROOM_OPTIONS}
       connect
       video={videoOpt}
       audio={audioOpt}
@@ -844,7 +864,7 @@ function RoomRecordingControls({
   elapsedMs: number;
   bytesRecorded: number;
   bytesUploaded: number;
-  onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
+  onStartRecording: (stream: MediaStream, ownsStream: boolean, run?: string | null) => Promise<void>;
   onStop: () => Promise<void> | void;
   onLeave: () => void;
   onChangeLocalSave?: () => void;
@@ -893,7 +913,7 @@ function RoomRecordingControls({
     });
     if (action === "start") {
       lastStartedRun.current = sw.run;
-      void onStartRecording(buildStream(), false);
+      void onStartRecording(buildStream(), false, sw.run);
     } else if (action === "stop" && !stopInFlight.current) {
       stopInFlight.current = true;
       void Promise.resolve(onStop()).finally(() => {
@@ -971,7 +991,7 @@ function LocalControlBar({
   recState: PipelineState;
   elapsedMs: number;
   preChoice: PreJoinChoice | null;
-  onStartRecording: (stream: MediaStream, ownsStream: boolean) => Promise<void>;
+  onStartRecording: (stream: MediaStream, ownsStream: boolean, run?: string | null) => Promise<void>;
   onStop: () => void;
   onLeave: () => void;
   onChangeLocalSave?: () => void;

@@ -42,6 +42,17 @@ export interface RegisterBatchResponse {
   storage_path: string;
 }
 
+/** Which recording of one person the mix uses: their HQ take once every
+ *  part has arrived, else the server's call-quality copy. */
+export interface PersonSource {
+  participant_id: string;
+  role: "host" | "guest";
+  source: "hq" | "server" | "none";
+  hq_ready: number;
+  hq_total: number;
+  server_ready: number;
+}
+
 export interface CompositeStatusResponse {
   session_id: string;
   status: "none" | "pending" | "processing" | "ready" | "error";
@@ -52,6 +63,7 @@ export interface CompositeStatusResponse {
   error: string | null;
   ready_recordings: number;
   total_recordings: number;
+  people: PersonSource[];
 }
 
 export type PipelineState =
