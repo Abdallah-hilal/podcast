@@ -16,6 +16,9 @@ import { PreJoin, type PreJoinChoice } from "@/components/meeting/PreJoin";
 import { VideoGrid } from "@/components/meeting/VideoGrid";
 import { ControlBar } from "@/components/meeting/ControlBar";
 import { RecBadge, RecoveryBadge, UploadBadge } from "@/components/meeting/Overlays";
+import { CallEnded } from "@/components/meeting/CallEnded";
+import { useAdaptiveUploadRate } from "@/components/meeting/useAdaptiveUploadRate";
+import { callEndedPhase, workLeftAfterLeave } from "@/lib/recording/callEnded";
 import {
   recoverLeftoverTakes,
   type RecoveryProgress,
@@ -27,7 +30,7 @@ import {
   HangUpIcon,
 } from "@/components/meeting/icons";
 import { useRecordingStream } from "@/components/meeting/useRecordingStream";
-import { LIVE_UPLOAD_BPS, RecordingPipeline } from "@/lib/recording/pipeline";
+import { RecordingPipeline } from "@/lib/recording/pipeline";
 import { createSingleFlight } from "@/lib/singleFlight";
 import { offerFile, type ShareNavigator } from "@/lib/recording/offerFile";
 import {
@@ -228,6 +231,11 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   // uploads. Takes live in another tab are skipped via their Web Lock.
   const [recovery, setRecovery] = useState<RecoveryProgress>({ active: false, percent: 0 });
   const recoveryStarted = useRef(false);
+  // handleLeave reads it after awaiting, so it needs the latest value.
+  const recoveryActiveRef = useRef(false);
+  useEffect(() => {
+    recoveryActiveRef.current = recovery.active;
+  }, [recovery.active]);
   useEffect(() => {
     if (!authed || recoveryStarted.current) return;
     recoveryStarted.current = true;
@@ -236,7 +244,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
       isLive: (id) => pipelineRef.current.currentRecordingId === id,
       // A refresh mid-call recovers while a new take is recording — pace it
       // like a live upload so it doesn't stutter the call.
-      rateLimit: () => (pipelineRef.current.state === "recording" ? LIVE_UPLOAD_BPS : null),
+      rateLimit: () =>
+        pipelineRef.current.state === "recording" ? pipelineRef.current.liveRate : null,
       onProgress: setRecovery,
     }).catch((e) => console.warn("Take recovery failed:", e));
   }, [authed, getFreshToken]);
@@ -362,13 +371,19 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     [stopFlight, stopRecordingImpl],
   );
 
+  // After Leave with an upload still running: the call is over (LiveKitRoom
+  // unmounts, camera and mic are released) but this tab stays on a "Call
+  // ended" screen showing the upload, instead of navigating away from it.
+  const [left, setLeft] = useState(false);
+  const isHost = !!joinInfo?.is_host || localOnly;
+
   const handleLeave = useCallback(async () => {
     // Route Leave-while-recording through the same stop path so the
     // auto-download fires once (and only once) per recording. Wait only
     // until the recorder has stopped and the local copy is offered — the
-    // upload keeps going in this tab in the background (and if the tab
-    // closes, the next visit's recovery finishes it). Waiting for the whole
-    // upload could mean hours on a slow uplink.
+    // upload then runs on the "Call ended" screen (and if the tab closes,
+    // the next visit's recovery finishes it). Waiting for the whole upload
+    // could mean hours on a slow uplink.
     if (pipelineRef.current.state === "recording") void handleStopRecording();
     for (let i = 0; i < 150; i++) {
       const s = pipelineRef.current.state;
@@ -384,8 +399,14 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     } catch {
       /* ignore */
     }
+    // Guests always get the screen: the home page is the host's, and only
+    // tells a guest it isn't for them.
+    if (!isHost || workLeftAfterLeave(pipelineRef.current.state, recoveryActiveRef.current)) {
+      setLeft(true);
+      return;
+    }
     router.push("/");
-  }, [router, handleStopRecording, prejoinedStorageKey, prechoiceStorageKey]);
+  }, [router, handleStopRecording, prejoinedStorageKey, prechoiceStorageKey, isHost]);
 
   // Keep the filename in sync with the PreJoin choice when it changes.
   useEffect(() => {
@@ -414,7 +435,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     const dangerous =
       pipelineState === "recording" ||
       pipelineState === "stopping" ||
-      pipelineState === "uploading";
+      pipelineState === "uploading" ||
+      recovery.active;
     if (!dangerous) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -422,7 +444,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [pipelineState]);
+  }, [pipelineState, recovery.active]);
 
   if (error) {
     return (
@@ -440,6 +462,36 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
     );
   }
 
+  if (left) {
+    return (
+      <CallEnded
+        title={sessionTitle}
+        phase={callEndedPhase(pipelineState, recovery.active)}
+        bytesUploaded={progress.bytesUploaded}
+        bytesRecorded={progress.bytesRecorded}
+        hasTake={progress.bytesRecorded > 0}
+        recovery={recovery}
+        lastError={progress.lastError}
+        isHost={isHost}
+        downloadCard={
+          pendingDownload && (
+            <DownloadRecordingBadge
+              floating={false}
+              url={pendingDownload.url}
+              filename={pendingDownload.filename}
+              onDismiss={() => setPendingDownload(null)}
+            />
+          )
+        }
+        onBack={() => router.push("/")}
+        onRejoin={() => {
+          setLeft(false);
+          setPrejoined(false);
+        }}
+      />
+    );
+  }
+
   if (!localOnly && !joinInfo) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
@@ -451,6 +503,8 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
   if (!prejoined) {
     const unsupported = support && !support.supported;
     return (
+      <>
+      {recovery.active && <RecoveryBadge percent={recovery.percent} fixed />}
       <PreJoin
         title={sessionTitle || "Meeting"}
         roleLabel={localOnly ? "Local recording" : "Ready to join"}
@@ -473,6 +527,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           support && support.quality === "limited" ? support.message ?? null : null
         }
       />
+      </>
     );
   }
 
@@ -641,6 +696,7 @@ export default function SessionClient({ sessionId }: { sessionId: string }) {
           )}
         </div>
         <RoomRecordingControls
+          pipelineRef={pipelineRef}
           isHost={!!joinInfo!.is_host}
           onSetSwitch={setRoomSwitch}
           recState={pipelineState}
@@ -670,15 +726,24 @@ function DownloadRecordingBadge({
   url,
   filename,
   onDismiss,
+  floating = true,
 }: {
   url: string;
   filename: string;
   onDismiss: () => void;
+  /** Float over the call (default) or sit in the page flow. */
+  floating?: boolean;
 }) {
   const isPhone =
     typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   return (
-    <div className="absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4">
+    <div
+      className={
+        floating
+          ? "absolute inset-x-0 bottom-20 flex justify-center pointer-events-none px-4"
+          : "flex w-full justify-center"
+      }
+    >
       <div
         className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-[0_18px_44px_rgba(24,24,27,0.16)]"
         role="status"
@@ -759,6 +824,7 @@ function DownloadRecordingBadge({
  * share the same mic/camera the video call is using (no second getUserMedia).
  */
 function RoomRecordingControls({
+  pipelineRef,
   isHost,
   onSetSwitch,
   recState,
@@ -771,6 +837,7 @@ function RoomRecordingControls({
   onChangeLocalSave,
   localSaveFilename,
 }: {
+  pipelineRef: React.RefObject<RecordingPipeline>;
   isHost: boolean;
   onSetSwitch: (recording: boolean) => Promise<void>;
   recState: PipelineState;
@@ -784,6 +851,7 @@ function RoomRecordingControls({
   localSaveFilename?: string | null;
 }) {
   const { buildStream, isReady } = useRecordingStream();
+  useAdaptiveUploadRate(pipelineRef, recState === "recording");
 
   // Publish this person's recording/upload status as participant
   // attributes; every tile in the room renders a chip from them. Reset

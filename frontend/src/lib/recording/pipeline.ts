@@ -10,6 +10,7 @@ import {
 } from "./mediaRecorder";
 import { OPFSStore } from "./opfsStore";
 import { TusUploader } from "./tusUploader";
+import { LIVE_RATE_START_BPS } from "./liveRate";
 import { createSerialQueue } from "@/lib/serialQueue";
 import {
   canDiscardLocalCopy,
@@ -21,11 +22,6 @@ import {
   type TakeManifest,
 } from "./manifest";
 
-// Recording uploads while the call is live are kept to a small slice of the
-// uplink: Egyptian home lines are often ~1–2 Mbps up and LiveKit needs most
-// of that, so a full-speed upload would stutter the call. Everything else
-// waits in OPFS and goes at full speed after Stop (or on the next visit).
-export const LIVE_UPLOAD_BPS = 500_000;
 const MAX_BATCH_ATTEMPTS = 3;
 // After Stop, keep waiting as long as bytes are moving — a slow uplink can
 // need hours for a long take. Give up only after this long with no progress
@@ -72,6 +68,13 @@ export class RecordingPipeline {
   private releaseLock: (() => void) | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private lastUploadProgressAt = 0;
+  // Uploads while recording are kept to a slice of the uplink: Egyptian
+  // home lines are often ~1–2 Mbps up and LiveKit needs most of that, so a
+  // full-speed upload would stutter the call. The slice adapts to the line
+  // (liveRate.ts, driven by useAdaptiveUploadRate inside the room) and is
+  // kept across takes on this page. The rest waits in OPFS and goes at full
+  // speed after Stop (or on the next visit).
+  private liveRateBps = LIVE_RATE_START_BPS;
   // Called before every backend API call and every TUS upload to pull a
   // fresh Supabase JWT. Avoids baking a token at start() that would expire
   // after an hour mid-session and silently 401 every upload.
@@ -138,6 +141,25 @@ export class RecordingPipeline {
 
   get state(): PipelineState {
     return this._state;
+  }
+
+  /** Upload limit while recording (bits/s); see liveRate.ts. */
+  get liveRate(): number {
+    return this.liveRateBps;
+  }
+
+  setLiveRate(bps: number) {
+    this.liveRateBps = bps;
+  }
+
+  /** A batch is uploading or queued — the live limit is what holds it back. */
+  get hasUploadBacklog(): boolean {
+    return this.inflightUploads.size > 0;
+  }
+
+  /** Uplink speed measured from this pipeline's own upload requests. */
+  get measuredLinkBps(): number | null {
+    return this.uploader.measuredBps;
   }
 
   /** The take this pipeline is recording/uploading right now, if any. */
@@ -425,7 +447,7 @@ export class RecordingPipeline {
     this.saveManifest(newManifest(this.recordingId, sessionId));
     this.startHeartbeat(this.recordingId);
 
-    this.uploader.setRateLimit(() => (this._state === "recording" ? LIVE_UPLOAD_BPS : null));
+    this.uploader.setRateLimit(() => (this._state === "recording" ? this.liveRateBps : null));
     this.setState("recording");
     this.startTime = Date.now();
 

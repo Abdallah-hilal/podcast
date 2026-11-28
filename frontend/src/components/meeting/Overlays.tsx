@@ -88,12 +88,13 @@ export function UploadBadge({
   );
 }
 
-/** Shown while an earlier take left behind by a refresh/crash is uploading. */
-export function RecoveryBadge({ percent }: { percent: number }) {
+/** Shown while an earlier take left behind by a refresh/crash is uploading.
+ *  `fixed` pins it to the window (pages without a positioned container). */
+export function RecoveryBadge({ percent, fixed = false }: { percent: number; fixed?: boolean }) {
   return (
     <div
       role="status"
-      className="appear absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold tracking-tight text-ink shadow-[0_6px_18px_rgba(24,24,27,0.10)]"
+      className={`appear ${fixed ? "fixed z-50" : "absolute z-20"} bottom-4 left-4 flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold tracking-tight text-ink shadow-[0_6px_18px_rgba(24,24,27,0.10)]`}
     >
       <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-900" aria-hidden />
       <span className="tabular-nums">Recovering an earlier recording · {percent}%</span>
