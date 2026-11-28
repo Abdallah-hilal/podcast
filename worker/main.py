@@ -45,7 +45,7 @@ from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from server_copy import (
-    egress_done, egress_filepath, local_to_worker, plan_reconcile, storage_path,
+    egress_done, egress_filepath, local_to_worker, plan_reconcile, room_run, storage_path,
 )
 from sources import choose_sources
 from sweep import final_path, plan_sweep
@@ -349,13 +349,13 @@ def _session_sources(db: Client, session_id: str) -> list[dict]:
     pg = db.schema("podcast")
     takes = (
         pg.table("recordings")
-        .select("id, participant_id, run, status, created_at, final_storage_path")
+        .select("id, participant_id, run, status, created_at, final_storage_path, duration_seconds")
         .eq("session_id", session_id)
         .execute()
     ).data or []
     copies = (
         pg.table("server_copies")
-        .select("id, participant_id, run, status, started_at, created_at, storage_path")
+        .select("id, participant_id, run, status, started_at, created_at, storage_path, duration_seconds")
         .eq("session_id", session_id)
         .execute()
     ).data or []
@@ -461,13 +461,15 @@ def _ns_to_iso(ns: int) -> str | None:
     return datetime.fromtimestamp(ns / 1e9, timezone.utc).isoformat() if ns else None
 
 
-async def _room_identities(lk: lkapi.LiveKitAPI, room: str, members: set[str]) -> set[str] | None:
-    try:
-        res = await lk.room.list_participants(lkapi.ListParticipantsRequest(room=room))
-    except TwirpError as e:
-        if e.code == "not_found":
-            return None
-        raise
+async def _room_identities(lk: lkapi.LiveKitAPI, room: str, members: set[str], run: str) -> set[str] | None:
+    """Podcast participants in the room now, or None when the room is gone or
+    its switch no longer says `run` — a room that closed with the switch on
+    comes back with empty metadata. (ListParticipants on a missing room just
+    returns nobody, so ask ListRooms.)"""
+    rooms = (await lk.room.list_rooms(lkapi.ListRoomsRequest(names=[room]))).rooms
+    if not rooms or room_run(rooms[0].metadata) != run:
+        return None
+    res = await lk.room.list_participants(lkapi.ListParticipantsRequest(room=room))
     return {
         p.identity for p in res.participants
         if p.kind != lkapi.ParticipantInfo.Kind.EGRESS and p.identity in members
@@ -529,8 +531,15 @@ async def _stop_copy(pg, lk: lkapi.LiveKitAPI, row: dict) -> None:
 
 
 async def _check_finished(pg, lk: lkapi.LiveKitAPI, row: dict) -> None:
-    res = await lk.egress.list_egress(lkapi.ListEgressRequest(egress_id=row["egress_id"]))
-    if not res.items:
+    try:
+        items = list((await lk.egress.list_egress(lkapi.ListEgressRequest(egress_id=row["egress_id"]))).items)
+    except TwirpError as e:
+        # LiveKit keeps finished egress info for ~24 h in Redis; an unknown id
+        # means it was lost (Redis restarted, worker down for a day).
+        if e.code != "not_found":
+            raise
+        items = []
+    if not items:
         age = (datetime.now(timezone.utc) - _parse_ts(row["updated_at"])).total_seconds()
         if age > EGRESS_LOST_SEC:
             pg.table("server_copies").update({
@@ -538,7 +547,7 @@ async def _check_finished(pg, lk: lkapi.LiveKitAPI, row: dict) -> None:
                 "updated_at": _now_iso(),
             }).eq("id", row["id"]).execute()
         return
-    info = res.items[0]
+    info = items[0]
     if not egress_done(info.status):
         return
     files = list(info.file_results) or ([info.file] if info.HasField("file") else [])
@@ -585,35 +594,43 @@ async def _reconcile_tick(db: Client, lk: lkapi.LiveKitAPI) -> None:
             sessions[s["id"]] = s
 
     for s in sessions.values():
-        copies = (pg.table("server_copies").select("*").eq("session_id", s["id"]).execute()).data or []
-        identities = None
-        if s.get("recording_run"):
-            members = {
-                p["id"] for p in (
-                    pg.table("participants").select("id").eq("session_id", s["id"]).execute()
-                ).data or []
-            }
-            identities = await _room_identities(lk, s["room_name"], members)
-        plan = plan_reconcile(s, identities, copies, datetime.now(timezone.utc))
+        try:
+            await _reconcile_session(pg, lk, s)
+        except Exception:
+            # One broken session must not hold up the others.
+            log.exception("server copy: reconcile of session %s failed", s["id"])
 
-        if plan.clear_run:
-            pg.table("sessions").update({"recording_run": None}).eq("id", s["id"]).eq(
-                "recording_run", s["recording_run"]).execute()
-            log.info("server copy: room %s is gone — switch cleared", s["room_name"])
-        for row in plan.retire:
-            pg.table("server_copies").update({
-                "status": "error", "error_message": "start never completed",
-                "updated_at": _now_iso(),
-            }).eq("id", row["id"]).eq("status", "starting").execute()
-        for row in plan.stop:
-            await _stop_copy(pg, lk, row)
-        for pid in plan.start:
-            await _start_copy(pg, lk, s, pid)
 
-        stopped = {r["id"] for r in plan.stop}
-        for row in copies:
-            if row["status"] in ("recording", "stopping") and row.get("egress_id") and row["id"] not in stopped:
-                await _check_finished(pg, lk, row)
+async def _reconcile_session(pg, lk: lkapi.LiveKitAPI, s: dict) -> None:
+    copies = (pg.table("server_copies").select("*").eq("session_id", s["id"]).execute()).data or []
+    identities = None
+    if s.get("recording_run"):
+        members = {
+            p["id"] for p in (
+                pg.table("participants").select("id").eq("session_id", s["id"]).execute()
+            ).data or []
+        }
+        identities = await _room_identities(lk, s["room_name"], members, s["recording_run"])
+    plan = plan_reconcile(s, identities, copies, datetime.now(timezone.utc))
+
+    if plan.clear_run:
+        pg.table("sessions").update({"recording_run": None}).eq("id", s["id"]).eq(
+            "recording_run", s["recording_run"]).execute()
+        log.info("server copy: room %s is gone or its switch is off — run cleared", s["room_name"])
+    for row in plan.retire:
+        pg.table("server_copies").update({
+            "status": "error", "error_message": "start never completed",
+            "updated_at": _now_iso(),
+        }).eq("id", row["id"]).eq("status", "starting").execute()
+    for row in plan.stop:
+        await _stop_copy(pg, lk, row)
+    for pid in plan.start:
+        await _start_copy(pg, lk, s, pid)
+
+    stopped = {r["id"] for r in plan.stop}
+    for row in copies:
+        if row["status"] in ("recording", "stopping") and row.get("egress_id") and row["id"] not in stopped:
+            await _check_finished(pg, lk, row)
 
 
 async def _reconcile_main(creds: tuple[str, str, str]) -> None:

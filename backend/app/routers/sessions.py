@@ -326,13 +326,13 @@ def _session_sources(db, session_id: str) -> tuple[list[dict], list[dict], list[
     HQ takes once all of a run's have arrived, else the server copy."""
     takes = (
         db.table("recordings")
-        .select("id, participant_id, run, status, created_at, final_storage_path")
+        .select("id, participant_id, run, status, created_at, final_storage_path, duration_seconds")
         .eq("session_id", session_id)
         .execute()
     ).data or []
     copies = (
         db.table("server_copies")
-        .select("id, participant_id, run, status, started_at, created_at, storage_path")
+        .select("id, participant_id, run, status, started_at, created_at, storage_path, duration_seconds")
         .eq("session_id", session_id)
         .execute()
     ).data or []

@@ -10,14 +10,14 @@ from sources import choose_sources, summarize_people  # noqa: E402
 HOST, GUEST = "p-host", "p-guest"
 
 
-def take(tid, pid, run, status="ready", start="2026-11-28T10:00:00+00:00"):
+def take(tid, pid, run, status="ready", start="2026-11-28T10:00:00+00:00", dur=None):
     return {"id": tid, "participant_id": pid, "run": run, "status": status,
-            "created_at": start, "final_storage_path": f"hq/{tid}.webm"}
+            "created_at": start, "final_storage_path": f"hq/{tid}.webm", "duration_seconds": dur}
 
 
-def copy(cid, pid, run, status="ready", start="2026-11-28T10:00:01+00:00"):
+def copy(cid, pid, run, status="ready", start="2026-11-28T10:00:01+00:00", dur=None):
     return {"id": cid, "participant_id": pid, "run": run, "status": status,
-            "started_at": start, "storage_path": f"server/{cid}.mp4"}
+            "started_at": start, "storage_path": f"server/{cid}.mp4", "duration_seconds": dur}
 
 
 def picked(items):
@@ -74,6 +74,38 @@ class ChooseSources(unittest.TestCase):
                   copy("c3", GUEST, "r2", start="2026-11-28T11:00:01+00:00")]
         self.assertEqual(picked(choose_sources(takes, copies)),
                          [("hq", "t1"), ("server", "c2"), ("hq", "t3")])
+
+
+class TruncatedHQ(unittest.TestCase):
+    # The guest closed the laptop with an upload backlog and never came back;
+    # a day later the sweeper closed the take with only its uploaded prefix,
+    # so it's "ready" but holds 20 of 60 minutes.
+    def test_truncated_hq_loses_to_longer_server_copy(self):
+        out = choose_sources([take("t1", GUEST, "r1", dur=1200.0)],
+                             [copy("c1", GUEST, "r1", dur=3600.0)])
+        self.assertEqual(picked(out), [("server", "c1")])
+        self.assertEqual(summarize_people([take("t1", GUEST, "r1", dur=1200.0)],
+                                          [copy("c1", GUEST, "r1", dur=3600.0)])[GUEST]["source"], "server")
+
+    def test_hq_missing_its_last_minute_loses(self):
+        out = choose_sources([take("t1", GUEST, "r1", dur=3540.0)],
+                             [copy("c1", GUEST, "r1", dur=3600.0)])
+        self.assertEqual(picked(out), [("server", "c1")])
+
+    def test_hq_about_as_long_as_server_copy_wins(self):
+        # HQ starts ~2-4 s before the egress and stops about when it does.
+        for hq, sv in ((89.9, 88.4), (3590.0, 3600.0), (40.0, 49.0)):
+            out = choose_sources([take("t1", HOST, "r1", dur=hq)], [copy("c1", HOST, "r1", dur=sv)])
+            self.assertEqual(picked(out), [("hq", "t1")], (hq, sv))
+
+    def test_segments_are_summed_per_run(self):
+        takes = [take("t1", GUEST, "r1", dur=1000.0), take("t2", GUEST, "r1", dur=2590.0)]
+        copies = [copy("c1", GUEST, "r1", dur=1000.0), copy("c2", GUEST, "r1", dur=2600.0)]
+        self.assertEqual(picked(choose_sources(takes, copies)), [("hq", "t1"), ("hq", "t2")])
+
+    def test_missing_durations_fall_back_to_status(self):
+        out = choose_sources([take("t1", HOST, "r1", dur=None)], [copy("c1", HOST, "r1", dur=3600.0)])
+        self.assertEqual(picked(out), [("hq", "t1")])
 
 
 class SummarizePeople(unittest.TestCase):

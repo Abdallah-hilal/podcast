@@ -9,13 +9,16 @@ for any other run. Stdlib only; the LiveKit and DB calls live in main.py.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
 OPEN = ("starting", "recording")
 # A failed start (egress refused, not connected) waits this long before the
-# next try, so a broken egress doesn't get hammered every tick.
-RETRY_AFTER_ERROR_SEC = 60
+# next try: long enough not to hammer a broken egress every 2 s tick, short
+# enough that a refusal while the previous run's encoders are still finishing
+# (quick Stop → Record) costs seconds, not a minute.
+RETRY_AFTER_ERROR_SEC = 10
 # A `starting` row with no egress after this long means the worker died
 # between claiming and starting; it blocks the unique index, so retire it.
 STUCK_STARTING_SEC = 60
@@ -67,6 +70,22 @@ def plan_reconcile(session: dict, room_identities: set[str] | None,
             continue
         plan.start.append(pid)
     return plan
+
+
+def room_run(metadata: str | None) -> str | None:
+    """The run the room's switch is on, from LiveKit room metadata (written by
+    the backend's set_room_recording), or None when it's off or not ours.
+
+    The reconcile loop only records a room whose metadata agrees with
+    `sessions.recording_run`: a room that closed with the switch on comes
+    back with empty metadata, and must not start recording people again."""
+    try:
+        m = json.loads(metadata or "")
+    except ValueError:
+        return None
+    if isinstance(m, dict) and m.get("recording") is True and isinstance(m.get("run"), str) and m["run"]:
+        return m["run"]
+    return None
 
 
 def egress_done(status: int) -> bool:

@@ -7,9 +7,14 @@ moment the call ends). The HQ take replaces the server copy once it has fully
 arrived.
 
 The rule, per (participant, run):
-  * every HQ take of that run is ready      -> the HQ takes
+  * every HQ take of that run is ready, and together they're about as long
+    as the run's server copies              -> the HQ takes
   * else any server copy of that run ready  -> the ready server copies
   * else                                    -> whatever HQ takes are ready
+"About as long" catches a take the worker's sweeper closed with only its
+uploaded prefix (laptop closed with a backlog, never reopened): it's `ready`
+but missing the end. HQ normally runs a few seconds longer than the server
+copy (it starts before the egress does).
 Takes without a run (older sessions, local-only mode) are HQ as always.
 A run is all HQ or all server copy for one person, never a mix.
 
@@ -41,10 +46,22 @@ def _groups(takes: list[dict], copies: list[dict]) -> dict:
     return groups
 
 
+def _total(rows: list[dict]) -> float | None:
+    durs = [r.get("duration_seconds") for r in rows]
+    return None if not durs or any(d is None for d in durs) else float(sum(durs))
+
+
+def _hq_shorter(ready_hq: list[dict], ready_server: list[dict]) -> bool:
+    hq, server = _total(ready_hq), _total(ready_server)
+    if hq is None or server is None:
+        return False  # can't tell; trust the status
+    return hq < server - max(10.0, 0.005 * server)
+
+
 def _pick(hq: list[dict], server: list[dict], run) -> tuple[str, list[dict]]:
     ready_hq = [t for t in hq if t["status"] == "ready"]
     ready_server = [c for c in server if c["status"] == "ready"]
-    if run is None or (hq and len(ready_hq) == len(hq)):
+    if run is None or (hq and len(ready_hq) == len(hq) and not _hq_shorter(ready_hq, ready_server)):
         return "hq", [_hq_item(t) for t in ready_hq]
     if ready_server:
         return "server", [_server_item(c) for c in ready_server]

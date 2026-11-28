@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from server_copy import (  # noqa: E402
-    egress_done, egress_filepath, local_to_worker, plan_reconcile, storage_path,
+    egress_done, egress_filepath, local_to_worker, plan_reconcile, room_run, storage_path,
 )
 
 NOW = datetime(2026, 11, 28, 12, 0, tzinfo=timezone.utc)
@@ -55,10 +55,12 @@ class PlanReconcile(unittest.TestCase):
         self.assertEqual(p.stop, [rec, starting])
         self.assertEqual((p.start, p.clear_run), ([], False))
 
-    def test_recent_error_blocks_retry_for_a_minute(self):
-        p = plan_reconcile(session(), {GUEST}, [copy(GUEST, status="error", age=20)], NOW)
+    def test_recent_error_blocks_retry_briefly(self):
+        # Egress refusing (e.g. old run's encoders still finishing after a quick
+        # Stop → Record) shouldn't cost the new run a whole minute.
+        p = plan_reconcile(session(), {GUEST}, [copy(GUEST, status="error", age=5)], NOW)
         self.assertEqual(p.start, [])
-        p = plan_reconcile(session(), {GUEST}, [copy(GUEST, status="error", age=90)], NOW)
+        p = plan_reconcile(session(), {GUEST}, [copy(GUEST, status="error", age=15)], NOW)
         self.assertEqual(p.start, [GUEST])
 
     def test_missing_room_clears_run(self):
@@ -74,6 +76,15 @@ class PlanReconcile(unittest.TestCase):
         p = plan_reconcile(session(), {HOST, GUEST}, [stuck, fresh], NOW)
         self.assertEqual(p.retire, [stuck])
         self.assertEqual(p.start, [])  # HOST waits for the next tick, after the retire
+
+
+class RoomRun(unittest.TestCase):
+    def test_room_run_reads_the_switch_metadata(self):
+        self.assertEqual(room_run('{"recording": true, "run": "r1", "changed_at": "x"}'), "r1")
+
+    def test_room_run_is_none_when_off_empty_or_foreign(self):
+        for md in ('{"recording": false, "run": null}', "", None, "not json", '{"run": "r1"}', "[1]"):
+            self.assertIsNone(room_run(md), md)
 
 
 class Helpers(unittest.TestCase):

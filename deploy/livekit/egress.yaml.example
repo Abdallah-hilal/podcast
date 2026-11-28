@@ -10,6 +10,8 @@ logging:
 health_port: 7981
 cpu_cost:
   # Defaults (participant 2.0 CPUs, 80 % max) would refuse the second
-  # person on this shared 6-core box.
+  # person on this shared 6-core box. A 720p participant encode measured
+  # ~0.9 core; 0.6 admits four at once (2.7 of the 3-CPU cap) so a quick
+  # Stop → Record isn't refused while the old run's two are still finishing.
   max_cpu_utilization: 0.9
-  participant_cpu_cost: 1.0
+  participant_cpu_cost: 0.6

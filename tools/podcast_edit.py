@@ -74,12 +74,12 @@ def cmd_fetch(args) -> None:
         'takes', coalesce((select json_agg(json_build_object(
             'id', r.id, 'participant_id', r.participant_id, 'run', r.run,
             'status', r.status, 'created_at', r.created_at,
-            'final_storage_path', r.final_storage_path))
+            'final_storage_path', r.final_storage_path, 'duration_seconds', r.duration_seconds))
           from podcast.recordings r where r.session_id = s.id), '[]'::json),
         'copies', coalesce((select json_agg(json_build_object(
             'id', c.id, 'participant_id', c.participant_id, 'run', c.run,
             'status', c.status, 'started_at', c.started_at, 'created_at', c.created_at,
-            'storage_path', c.storage_path))
+            'storage_path', c.storage_path, 'duration_seconds', c.duration_seconds))
           from podcast.server_copies c where c.session_id = s.id), '[]'::json))
       from podcast.sessions s where s.id = '{sid}'"""
     r = run(["ssh", SSH, "docker exec -i podcast-supabase-db psql -U postgres -d postgres -At"], input=sql)
