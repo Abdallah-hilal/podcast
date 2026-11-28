@@ -29,6 +29,9 @@ class StartRecordingRequest(BaseModel):
     actual_width: int
     actual_height: int
     fps: float
+    # The host switch's run this take follows; pairs it with the same run's
+    # server copy. None for local-only mode.
+    run: str | None = None
 
 
 class StartRecordingResponse(BaseModel):
@@ -88,6 +91,7 @@ async def start_recording(
             "actual_width": body.actual_width,
             "actual_height": body.actual_height,
             "fps": body.fps,
+            "run": body.run,
             "status": "recording",
         }
     ).execute()

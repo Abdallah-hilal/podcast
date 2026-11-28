@@ -8,6 +8,7 @@ from supabase import create_client
 from app.config import settings
 from app.dependencies import get_current_user, get_host_user
 from app.services import livekit
+from app.services.sources import choose_sources, summarize_people
 from app.services.storage import create_signed_download_url, remove_prefix
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -208,6 +209,11 @@ async def set_room_recording(
         raise HTTPException(
             status_code=409, detail=f"Couldn't reach the call room: {e}"
         ) from e
+    # The worker's reconcile loop follows this column to start and stop each
+    # person's server recording copy (LiveKit egress).
+    db.table("sessions").update({"recording_run": meta["run"]}).eq(
+        "id", session_id
+    ).execute()
     return RoomRecordingResponse(recording=meta["recording"], run=meta["run"])
 
 
@@ -266,6 +272,15 @@ async def get_session(
     )
 
 
+class PersonSource(BaseModel):
+    participant_id: str
+    role: str
+    source: str  # hq | server | none — what the composite will use
+    hq_ready: int
+    hq_total: int
+    server_ready: int
+
+
 class CompositeStatusResponse(BaseModel):
     session_id: str
     status: str  # one of: none | pending | processing | ready | error
@@ -276,6 +291,7 @@ class CompositeStatusResponse(BaseModel):
     error: str | None = None
     ready_recordings: int = 0
     total_recordings: int = 0
+    people: list[PersonSource] = []
 
 
 def _owner_only(db, session_id: str, user_id: str) -> None:
@@ -305,15 +321,43 @@ def _composite_row(db, session_id: str):
     return r.data if r else None
 
 
-def _count_recordings(db, session_id: str) -> tuple[int, int]:
-    all_rec = (
+def _session_sources(db, session_id: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """(takes, server copies, chosen) — chosen per person by sources.py: the
+    HQ takes once all of a run's have arrived, else the server copy."""
+    takes = (
         db.table("recordings")
-        .select("id, status", count="exact")
+        .select("id, participant_id, run, status, created_at, final_storage_path")
         .eq("session_id", session_id)
         .execute()
-    )
-    rows = all_rec.data or []
-    return sum(1 for r in rows if r["status"] == "ready"), len(rows)
+    ).data or []
+    copies = (
+        db.table("server_copies")
+        .select("id, participant_id, run, status, started_at, created_at, storage_path")
+        .eq("session_id", session_id)
+        .execute()
+    ).data or []
+    return takes, copies, choose_sources(takes, copies)
+
+
+def _count_recordings(db, session_id: str) -> tuple[int, int]:
+    """(files the composite would use, HQ takes in the session)."""
+    takes, _copies, chosen = _session_sources(db, session_id)
+    return len(chosen), len(takes)
+
+
+def _people(db, session_id: str) -> list[PersonSource]:
+    takes, copies, _chosen = _session_sources(db, session_id)
+    roles = {
+        p["id"]: p["role"]
+        for p in (
+            db.table("participants").select("id, role").eq("session_id", session_id).execute()
+        ).data or []
+    }
+    summary = summarize_people(takes, copies)
+    return [
+        PersonSource(participant_id=pid, role=roles.get(pid, "guest"), **info)
+        for pid, info in sorted(summary.items(), key=lambda kv: roles.get(kv[0]) != "host")
+    ]
 
 
 @router.get("/{session_id}/composite", response_model=CompositeStatusResponse)
@@ -326,6 +370,7 @@ async def get_composite(
 
     row = _composite_row(db, session_id)
     ready, total = _count_recordings(db, session_id)
+    people = _people(db, session_id)
 
     if not row:
         return CompositeStatusResponse(
@@ -333,6 +378,7 @@ async def get_composite(
             status="none",
             ready_recordings=ready,
             total_recordings=total,
+            people=people,
         )
 
     download_url = None
@@ -349,6 +395,7 @@ async def get_composite(
         error=row.get("error_message"),
         ready_recordings=ready,
         total_recordings=total,
+        people=people,
     )
 
 
