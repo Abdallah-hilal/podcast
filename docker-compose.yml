@@ -37,6 +37,10 @@ services:
     container_name: podcast-worker
     restart: unless-stopped
     env_file: .env
+    # Server recording copies: LiveKit egress (in /opt/livekit) writes each
+    # person's MP4 here; the worker imports it into Supabase storage.
+    volumes:
+      - /opt/podcast-egress:/egress
     depends_on:
       backend:
         condition: service_healthy

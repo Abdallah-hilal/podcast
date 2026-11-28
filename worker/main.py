@@ -6,6 +6,11 @@ Polls the `processing_jobs` table and dispatches on `job_type`:
   * `composite`   — ffmpeg side-by-side of all ready recordings in a session,
                     store under podcast.session_composites.
 
+Two background threads run the server recording copy (LiveKit participant
+egress, see server_copy.py): `reconcile_loop` keeps one egress per person in
+every room whose host switch is on and notices finished ones; `import_loop`
+moves finished files from /egress into storage.
+
 The byte-wise WebM concat is safe because every batch comes from one browser
 `MediaRecorder` session using timeslice: the recorder emits one WebM header
 in the first chunk and raw Matroska clusters afterwards. Pause/resume or
@@ -17,6 +22,7 @@ SUPABASE_SERVICE_ROLE_KEY in the environment.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -24,6 +30,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,8 +38,16 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
+from livekit import api as lkapi
+from livekit.api.twirp_client import TwirpError
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
+from server_copy import (
+    egress_done, egress_filepath, local_to_worker, plan_reconcile, storage_path,
+)
+from sources import choose_sources
 from sweep import final_path, plan_sweep
 
 BUCKET = "podcast-recordings"
@@ -45,6 +60,15 @@ COMPOSITE_WIDTH = int(os.environ.get("COMPOSITE_WIDTH", "1920"))
 COMPOSITE_HEIGHT = int(os.environ.get("COMPOSITE_HEIGHT", "1080"))
 
 JOB_TYPES = ("reconstruct", "composite")
+
+# Server recording copy (LiveKit participant egress).
+EGRESS_DIR = Path(os.environ.get("EGRESS_DIR", "/egress"))
+RECONCILE_INTERVAL_SEC = float(os.environ.get("SERVER_COPY_RECONCILE_SEC", "2"))
+IMPORT_INTERVAL_SEC = float(os.environ.get("SERVER_COPY_IMPORT_SEC", "5"))
+IMPORT_RETRY_SEC = 60
+# An egress LiveKit no longer knows about is given this long before the copy
+# is written off (it normally reports COMPLETE within seconds).
+EGRESS_LOST_SEC = 600
 
 logging.basicConfig(
     level=logging.INFO,
@@ -248,36 +272,31 @@ def process_composite(db: Client, job: dict) -> None:
         {"status": "processing", "error_message": None, "updated_at": _now_iso()}
     ).eq("session_id", session_id).execute()
 
-    # Collect ready recordings for this session, oldest first — stable ordering.
-    recordings = (
-        db.schema("podcast").table("recordings")
-        .select("id, participant_id, final_storage_path, created_at")
-        .eq("session_id", session_id)
-        .eq("status", "ready")
-        .order("created_at")
-        .execute()
-    )
-    if not recordings.data:
+    # Per person: the HQ takes once they've all arrived, else the server copy
+    # (sources.py). Oldest first — stable ordering.
+    chosen = _session_sources(db, session_id)
+    if not chosen:
         raise RuntimeError(f"no ready recordings for session {session_id}")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="composite-"))
     takes: list[Take] = []
     try:
-        t0 = min(_parse_ts(r["created_at"]) for r in recordings.data)
-        for i, r in enumerate(recordings.data):
-            fp = r.get("final_storage_path")
+        t0 = min(_parse_ts(r["start"]) for r in chosen)
+        for i, r in enumerate(chosen):
+            fp = r.get("path")
             if not fp:
                 continue
-            raw = tmpdir / f"input-{i:02d}.webm"
+            ext = ".mp4" if r["kind"] == "server" else ".webm"
+            raw = tmpdir / f"input-{i:02d}{ext}"
             raw.write_bytes(db.storage.from_(BUCKET).download(fp))
             path, duration = _remux_with_index(raw, tmpdir / f"input-{i:02d}-indexed.webm")
             if not duration:
-                log.warning("skipping recording %s: unreadable duration", r["id"])
+                log.warning("skipping %s %s: unreadable duration", r["kind"], r["id"])
                 continue
             takes.append(Take(
                 path=path,
                 participant_id=r["participant_id"],
-                offset=(_parse_ts(r["created_at"]) - t0).total_seconds(),
+                offset=(_parse_ts(r["start"]) - t0).total_seconds(),
                 duration=duration,
             ))
 
@@ -312,6 +331,23 @@ def process_composite(db: Client, job: dict) -> None:
         {"status": "completed", "completed_at": _now_iso(), "error_message": None}
     ).eq("id", job["id"]).execute()
     log.info("job %s: composite ready for session %s (%d takes)", job["id"], session_id, len(takes))
+
+
+def _session_sources(db: Client, session_id: str) -> list[dict]:
+    pg = db.schema("podcast")
+    takes = (
+        pg.table("recordings")
+        .select("id, participant_id, run, status, created_at, final_storage_path")
+        .eq("session_id", session_id)
+        .execute()
+    ).data or []
+    copies = (
+        pg.table("server_copies")
+        .select("id, participant_id, run, status, started_at, created_at, storage_path")
+        .eq("session_id", session_id)
+        .execute()
+    ).data or []
+    return choose_sources(takes, copies)
 
 
 @dataclass
@@ -396,6 +432,270 @@ def _render_composite(takes: list[Take], out: Path) -> None:
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg failed (rc={r.returncode}): {r.stderr[-2000:]}")
+
+
+# ---------------------------------------------------------------------------
+# server recording copy — reconcile + import threads (see server_copy.py)
+# ---------------------------------------------------------------------------
+
+def _livekit_env() -> tuple[str, str, str] | None:
+    url = os.environ.get("LIVEKIT_URL", "")
+    key = os.environ.get("LIVEKIT_API_KEY", "")
+    secret = os.environ.get("LIVEKIT_API_SECRET", "")
+    return (url, key, secret) if url and key and secret else None
+
+
+def _ns_to_iso(ns: int) -> str | None:
+    return datetime.fromtimestamp(ns / 1e9, timezone.utc).isoformat() if ns else None
+
+
+async def _room_identities(lk: lkapi.LiveKitAPI, room: str, members: set[str]) -> set[str] | None:
+    try:
+        res = await lk.room.list_participants(lkapi.ListParticipantsRequest(room=room))
+    except TwirpError as e:
+        if e.code == "not_found":
+            return None
+        raise
+    return {
+        p.identity for p in res.participants
+        if p.kind != lkapi.ParticipantInfo.Kind.EGRESS and p.identity in members
+    }
+
+
+async def _start_copy(pg, lk: lkapi.LiveKitAPI, session: dict, pid: str) -> None:
+    run = session["recording_run"]
+    cid = str(uuid4())
+    try:
+        pg.table("server_copies").insert({
+            "id": cid, "session_id": session["id"], "participant_id": pid,
+            "run": run, "status": "starting",
+        }).execute()
+    except APIError as e:
+        if getattr(e, "code", None) == "23505":  # someone else claimed it
+            return
+        raise
+    filepath = egress_filepath(session["id"], pid, cid)
+    try:
+        info = await lk.egress.start_participant_egress(lkapi.ParticipantEgressRequest(
+            room_name=session["room_name"],
+            identity=pid,
+            preset=lkapi.EncodingOptionsPreset.H264_720P_30,
+            file_outputs=[lkapi.EncodedFileOutput(
+                file_type=lkapi.EncodedFileType.MP4, filepath=filepath,
+            )],
+        ))
+    except Exception as e:
+        pg.table("server_copies").update({
+            "status": "error", "error_message": f"start: {e}"[:500], "updated_at": _now_iso(),
+        }).eq("id", cid).execute()
+        log.warning("server copy: couldn't start egress for %s in %s: %s", pid, session["room_name"], e)
+        return
+    pg.table("server_copies").update({
+        "egress_id": info.egress_id, "status": "recording",
+        "local_path": filepath, "updated_at": _now_iso(),
+    }).eq("id", cid).execute()
+    log.info("server copy %s: egress %s recording %s (run %s)", cid, info.egress_id, pid, run)
+
+
+async def _stop_copy(pg, lk: lkapi.LiveKitAPI, row: dict) -> None:
+    if not row.get("egress_id"):
+        pg.table("server_copies").update({
+            "status": "error", "error_message": "stopped before the egress started",
+            "updated_at": _now_iso(),
+        }).eq("id", row["id"]).execute()
+        return
+    try:
+        await lk.egress.stop_egress(lkapi.StopEgressRequest(egress_id=row["egress_id"]))
+    except TwirpError as e:
+        # Already ended (participant left, room closed): the finish check
+        # picks up its final state either way.
+        log.info("server copy %s: stop_egress: %s", row["id"], e.message)
+    pg.table("server_copies").update(
+        {"status": "stopping", "updated_at": _now_iso()}
+    ).eq("id", row["id"]).in_("status", ["starting", "recording"]).execute()
+    log.info("server copy %s: stopping egress %s", row["id"], row["egress_id"])
+
+
+async def _check_finished(pg, lk: lkapi.LiveKitAPI, row: dict) -> None:
+    res = await lk.egress.list_egress(lkapi.ListEgressRequest(egress_id=row["egress_id"]))
+    if not res.items:
+        age = (datetime.now(timezone.utc) - _parse_ts(row["updated_at"])).total_seconds()
+        if age > EGRESS_LOST_SEC:
+            pg.table("server_copies").update({
+                "status": "error", "error_message": "LiveKit lost track of the egress",
+                "updated_at": _now_iso(),
+            }).eq("id", row["id"]).execute()
+        return
+    info = res.items[0]
+    if not egress_done(info.status):
+        return
+    files = list(info.file_results) or ([info.file] if info.HasField("file") else [])
+    f = files[0] if files else None
+    complete = info.status in (lkapi.EgressStatus.EGRESS_COMPLETE, lkapi.EgressStatus.EGRESS_LIMIT_REACHED)
+    if complete and f is not None and f.size > 0:
+        pg.table("server_copies").update({
+            "status": "importing",
+            "local_path": f.filename or row.get("local_path"),
+            "started_at": _ns_to_iso(f.started_at),
+            "ended_at": _ns_to_iso(f.ended_at),
+            "duration_seconds": round(f.duration / 1e9, 3) if f.duration else None,
+            "total_bytes": f.size,
+            "error_message": None,
+            "updated_at": _now_iso(),
+        }).eq("id", row["id"]).execute()
+        log.info("server copy %s: egress done (%d bytes) — importing", row["id"], f.size)
+    else:
+        status = lkapi.EgressStatus.Name(info.status)
+        pg.table("server_copies").update({
+            "status": "error", "error_message": f"{status}: {info.error}"[:500],
+            "updated_at": _now_iso(),
+        }).eq("id", row["id"]).execute()
+        log.warning("server copy %s: egress ended %s: %s", row["id"], status, info.error)
+
+
+async def _reconcile_tick(db: Client, lk: lkapi.LiveKitAPI) -> None:
+    pg = db.schema("podcast")
+    on = (
+        pg.table("sessions").select("id, room_name, recording_run")
+        .not_.is_("recording_run", "null").execute()
+    ).data or []
+    busy = (
+        pg.table("server_copies").select("session_id")
+        .in_("status", ["starting", "recording", "stopping"]).execute()
+    ).data or []
+    sessions = {s["id"]: s for s in on}
+    missing = {c["session_id"] for c in busy} - set(sessions)
+    if missing:
+        for s in (
+            pg.table("sessions").select("id, room_name, recording_run")
+            .in_("id", list(missing)).execute()
+        ).data or []:
+            sessions[s["id"]] = s
+
+    for s in sessions.values():
+        copies = (pg.table("server_copies").select("*").eq("session_id", s["id"]).execute()).data or []
+        identities = None
+        if s.get("recording_run"):
+            members = {
+                p["id"] for p in (
+                    pg.table("participants").select("id").eq("session_id", s["id"]).execute()
+                ).data or []
+            }
+            identities = await _room_identities(lk, s["room_name"], members)
+        plan = plan_reconcile(s, identities, copies, datetime.now(timezone.utc))
+
+        if plan.clear_run:
+            pg.table("sessions").update({"recording_run": None}).eq("id", s["id"]).eq(
+                "recording_run", s["recording_run"]).execute()
+            log.info("server copy: room %s is gone — switch cleared", s["room_name"])
+        for row in plan.retire:
+            pg.table("server_copies").update({
+                "status": "error", "error_message": "start never completed",
+                "updated_at": _now_iso(),
+            }).eq("id", row["id"]).eq("status", "starting").execute()
+        for row in plan.stop:
+            await _stop_copy(pg, lk, row)
+        for pid in plan.start:
+            await _start_copy(pg, lk, s, pid)
+
+        stopped = {r["id"] for r in plan.stop}
+        for row in copies:
+            if row["status"] in ("recording", "stopping") and row.get("egress_id") and row["id"] not in stopped:
+                await _check_finished(pg, lk, row)
+
+
+async def _reconcile_main(creds: tuple[str, str, str]) -> None:
+    db = _get_client()
+    async with lkapi.LiveKitAPI(*creds) as lk:
+        while not _stop:
+            try:
+                await _reconcile_tick(db, lk)
+            except Exception:
+                log.exception("server copy: reconcile tick failed")
+            await asyncio.sleep(RECONCILE_INTERVAL_SEC)
+
+
+def reconcile_loop(creds: tuple[str, str, str]) -> None:
+    asyncio.run(_reconcile_main(creds))
+
+
+def _upload_file(dest: str, src: Path, content_type: str) -> None:
+    """Stream a big local file into storage. Uses its own client with long
+    timeouts: the shared storage3 client times out after 20 s."""
+    base = os.environ["SUPABASE_URL"].rstrip("/")
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    size = src.stat().st_size
+    with open(src, "rb") as f:
+        r = httpx.post(
+            f"{base}/storage/v1/object/{BUCKET}/{dest}",
+            headers={
+                "Authorization": f"Bearer {key}", "apikey": key,
+                "Content-Type": content_type, "Content-Length": str(size),
+                "x-upsert": "true",
+            },
+            content=f,
+            timeout=httpx.Timeout(900.0, connect=30.0),
+        )
+    if r.status_code >= 300:
+        raise RuntimeError(f"storage upload {r.status_code}: {r.text[:300]}")
+
+
+def _import_one(pg, row: dict) -> None:
+    src = Path(local_to_worker(row["local_path"] or ""))
+    if not src.is_file():
+        pg.table("server_copies").update({
+            "status": "error", "error_message": f"file missing: {src}", "updated_at": _now_iso(),
+        }).eq("id", row["id"]).execute()
+        log.warning("server copy %s: %s is missing", row["id"], src)
+        return
+    dest = storage_path(row["session_id"], row["participant_id"], row["id"])
+    try:
+        _upload_file(dest, src, "video/mp4")
+    except Exception as e:
+        pg.table("server_copies").update(
+            {"error_message": f"import: {e}"[:500], "updated_at": _now_iso()}
+        ).eq("id", row["id"]).execute()
+        log.warning("server copy %s: import failed, retrying in %ds: %s", row["id"], IMPORT_RETRY_SEC, e)
+        return
+    pg.table("server_copies").update({
+        "status": "ready", "storage_path": dest, "total_bytes": src.stat().st_size,
+        "duration_seconds": row.get("duration_seconds") or _probe_duration(src),
+        "error_message": None, "updated_at": _now_iso(),
+    }).eq("id", row["id"]).execute()
+    log.info("server copy %s: ready at %s", row["id"], dest)
+    for p in (src, src.with_suffix(".json"), src.with_name(src.name + ".json")):
+        p.unlink(missing_ok=True)
+
+
+def import_loop() -> None:
+    db = _get_client()
+    pg = db.schema("podcast")
+    while not _stop:
+        try:
+            rows = (
+                pg.table("server_copies").select("*").eq("status", "importing")
+                .order("created_at").execute()
+            ).data or []
+            now = datetime.now(timezone.utc)
+            for row in rows:
+                if row.get("error_message") and (
+                    now - _parse_ts(row["updated_at"])
+                ).total_seconds() < IMPORT_RETRY_SEC:
+                    continue
+                _import_one(pg, row)
+        except Exception:
+            log.exception("server copy: import pass failed")
+        time.sleep(IMPORT_INTERVAL_SEC)
+
+
+def start_server_copy_threads() -> None:
+    creds = _livekit_env()
+    if not creds or not EGRESS_DIR.is_dir():
+        log.info("server copy: off (LiveKit env or %s missing)", EGRESS_DIR)
+        return
+    threading.Thread(target=reconcile_loop, args=(creds,), name="reconcile", daemon=True).start()
+    threading.Thread(target=import_loop, name="import", daemon=True).start()
+    log.info("server copy: reconcile every %.0fs, import every %.0fs", RECONCILE_INTERVAL_SEC, IMPORT_INTERVAL_SEC)
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +819,7 @@ def main() -> None:
         "worker started (poll=%.1fs, max_attempts=%d, types=%s)",
         POLL_INTERVAL_SEC, MAX_ATTEMPTS, JOB_TYPES,
     )
+    start_server_copy_threads()
 
     last_sweep = 0.0
     while not _stop:

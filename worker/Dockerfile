@@ -15,6 +15,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY main.py sweep.py ./
+COPY main.py sweep.py sources.py server_copy.py ./
 
 CMD ["python", "-u", "main.py"]
