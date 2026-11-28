@@ -54,6 +54,12 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------- fetch
 
 def cmd_fetch(args) -> None:
+    """Pull one file per take to edit with. Per person and run, that's the HQ
+    take once every part of it has arrived, else the server's call-quality
+    copy (worker/sources.py decides; the manifest says which via `source`)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "worker"))
+    from sources import choose_sources
+
     sid = args.session_id
     if not re.fullmatch(r"[0-9a-f-]{36}", sid):
         sys.exit("session id must be a UUID")
@@ -62,28 +68,43 @@ def cmd_fetch(args) -> None:
     sql = f"""
       select json_build_object(
         'session_id', s.id, 'title', s.title,
+        'people', coalesce((select json_object_agg(p.id, json_build_object(
+            'role', p.role, 'name', p.display_name))
+          from podcast.participants p where p.session_id = s.id), '{{}}'::json),
         'takes', coalesce((select json_agg(json_build_object(
-            'recording_id', r.id, 'participant_id', r.participant_id,
-            'role', p.role, 'name', p.display_name, 'start', r.created_at,
-            'path', r.final_storage_path)
-          order by r.created_at)
-          from podcast.recordings r join podcast.participants p on p.id = r.participant_id
-          where r.session_id = s.id and r.status = 'ready'), '[]'::json))
+            'id', r.id, 'participant_id', r.participant_id, 'run', r.run,
+            'status', r.status, 'created_at', r.created_at,
+            'final_storage_path', r.final_storage_path))
+          from podcast.recordings r where r.session_id = s.id), '[]'::json),
+        'copies', coalesce((select json_agg(json_build_object(
+            'id', c.id, 'participant_id', c.participant_id, 'run', c.run,
+            'status', c.status, 'started_at', c.started_at, 'created_at', c.created_at,
+            'storage_path', c.storage_path))
+          from podcast.server_copies c where c.session_id = s.id), '[]'::json))
       from podcast.sessions s where s.id = '{sid}'"""
     r = run(["ssh", SSH, "docker exec -i podcast-supabase-db psql -U postgres -d postgres -At"], input=sql)
-    manifest = json.loads(r.stdout.strip() or "null") or sys.exit("session not found")
-    if not manifest["takes"]:
+    found = json.loads(r.stdout.strip() or "null") or sys.exit("session not found")
+    chosen = choose_sources(found["takes"], found["copies"])
+    if not chosen:
         sys.exit("session has no ready recordings yet")
-    for t in manifest["takes"]:
-        local = out / f"{t['role']}-{t['recording_id'][:8]}.webm"
-        remote_dir = f"{STORAGE_ROOT}/{t['path']}"
+    takes = []
+    for c in chosen:
+        person = found["people"].get(c["participant_id"], {"role": "guest", "name": "Guest"})
+        ext = ".mp4" if c["kind"] == "server" else ".webm"
+        local = out / f"{person['role']}-{c['kind']}-{c['id'][:8]}{ext}"
+        remote_dir = f"{STORAGE_ROOT}/{c['path']}"
         newest = run(["ssh", SSH, f"ls -t '{remote_dir}' | head -1"]).stdout.strip()
         if not local.exists():
             run(["scp", "-q", f"{SSH}:{remote_dir}/{newest}", str(local)])
-        t["file"] = local.name
-        print(f"  {t['role']:5}  {t['start']}  {local}")
+        takes.append({
+            "recording_id": c["id"], "participant_id": c["participant_id"],
+            "role": person["role"], "name": person["name"], "start": c["start"],
+            "path": c["path"], "source": c["kind"], "file": local.name,
+        })
+        print(f"  {person['role']:5}  {c['kind']:6}  {c['start']}  {local}")
+    manifest = {"session_id": found["session_id"], "title": found["title"], "takes": takes}
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
-    print(f"fetched {len(manifest['takes'])} take(s) -> {out}/manifest.json")
+    print(f"fetched {len(takes)} take(s) -> {out}/manifest.json")
 
 
 # ---------------------------------------------------------------- analysis
